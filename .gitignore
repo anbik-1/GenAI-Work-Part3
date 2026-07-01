@@ -1,0 +1,20 @@
+# Dependencies (regenerable, huge — not committed)
+node_modules/
+
+# Build outputs (regenerable)
+dist/
+build/
+out/
+cdk.out/
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# NOTE: Per project owner's request, .env and config files ARE committed
+# (this repo is private). Do not add .env here.

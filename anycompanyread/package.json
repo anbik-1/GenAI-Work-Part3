@@ -1,0 +1,24 @@
+{
+  "name": "anycompanyread",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AnyCompanyRead - Online Book E-Commerce Platform",
+  "workspaces": [
+    "packages/shared",
+    "packages/backend",
+    "packages/frontend",
+    "packages/infrastructure"
+  ],
+  "scripts": {
+    "build": "npm run build:shared && npm run build:backend && npm run build:frontend",
+    "build:shared": "npm run build -w packages/shared",
+    "build:backend": "npm run build -w packages/backend",
+    "build:frontend": "npm run build -w packages/frontend",
+    "dev:frontend": "npm run dev -w packages/frontend",
+    "deploy": "npm run deploy -w packages/infrastructure",
+    "seed": "npx ts-node scripts/seed-data.ts"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
