@@ -1,0 +1,20 @@
+CASE STUDY — Retail E-Commerce Platform
+Client: ShopNepal Online
+Engagement Type: Cloud Native Development
+Date: August 2023
+Prepared by: Genese Solution
+
+CLIENT OVERVIEW
+ShopNepal Online is Nepal's second-largest e-commerce marketplace with 45,000 active sellers and 2.1 million SKUs. Following acquisition of two regional competitors, ShopNepal needed to consolidate three separate platforms into a unified architecture capable of supporting projected 300% growth over 24 months.
+
+THE CHALLENGE
+The acquisition left ShopNepal with three separate technology stacks, three separate databases, and three separate fulfilment systems. Customer accounts could not be unified, and sellers were required to maintain separate storefronts on each platform. The highest-traffic platform was hosted on a single EC2 instance that crashed twice during major sales events, resulting in estimated losses of NPR 18M.
+
+OUR SOLUTION
+Genese Solution designed and built a new cloud-native e-commerce platform on AWS from scratch over 9 months, replacing all three legacy systems. The architecture uses a serverless and containerised hybrid approach: Amazon API Gateway + Lambda for the product catalogue and search API (handling variable, spiky traffic), ECS Fargate for the order management and seller portal (steady workloads), Amazon OpenSearch Service for product search and recommendations, Amazon DynamoDB for the shopping cart and session data, Amazon RDS Aurora for order records and financial data, Amazon ElastiCache for product page caching achieving <50ms page load times, Amazon S3 + CloudFront for product images and static assets, and Amazon Personalize for AI-powered product recommendations.
+
+RESULTS AND OUTCOMES
+Platform consolidation completed in 9 months. 99.99% uptime during first Dashain sale post-launch (1.2M concurrent users at peak). Page load time reduced from 4.2s to 0.8s. Seller onboarding time reduced from 5 days to 4 hours. AWS cost per order: 18% lower than combined legacy platform costs. Product recommendation CTR improved 34% using Amazon Personalize.
+
+KEY TAKEAWAYS
+Separating spiky (catalogue/search) from steady (orders/sellers) workloads and applying appropriate compute models (Lambda vs Fargate) significantly reduces cost while improving reliability. DynamoDB's on-demand capacity mode proved essential for unpredictable cart traffic during flash sales.

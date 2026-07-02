@@ -1,0 +1,29 @@
+PROPOSAL — Data Platform Modernisation
+Client: RetailMax Nepal
+Engagement Type: Data Platform
+Date: January 2024
+Prepared by: Genese Solution
+
+EXECUTIVE SUMMARY
+Genese Solution proposes a modern cloud data platform for RetailMax Nepal that will transform fragmented data silos into a unified, real-time analytics environment on AWS. The platform will enable RetailMax to generate actionable insights within minutes rather than days, supporting data-driven merchandising, inventory optimisation, and personalised customer experiences.
+
+PROBLEM STATEMENT
+RetailMax Nepal currently manages customer, inventory, and sales data across 6 disconnected systems with no centralised analytics capability. Business analysts wait 48-72 hours for standard reports and cannot perform ad-hoc queries. The absence of real-time inventory visibility has resulted in an estimated NPR 45M in lost sales due to stockouts and NPR 28M in tied-up capital from overstock situations annually.
+
+PROPOSED SOLUTION
+Genese Solution recommends an AWS-native data lakehouse architecture combining Amazon S3 (data lake), AWS Glue (ETL), Amazon Redshift Serverless (data warehouse), Amazon QuickSight (BI), and Amazon Kinesis (real-time streaming). The solution implements a Medallion Architecture (Bronze/Silver/Gold layers) ensuring data quality and lineage. Real-time POS transaction streaming via Kinesis Firehose will enable inventory dashboards refreshed every 60 seconds.
+
+SOLUTION ARCHITECTURE
+Data ingestion: AWS Glue ETL jobs + Kinesis Data Streams for real-time POS data. Storage: Amazon S3 with Parquet format and Delta Lake for ACID transactions. Processing: AWS Glue and Apache Spark for batch; Kinesis Analytics for streaming. Serving: Amazon Redshift Serverless for complex queries; Amazon ElastiCache for dashboard caching. Visualisation: Amazon QuickSight with embedded analytics in the RetailMax internal portal. Governance: AWS Lake Formation with column-level security for PII protection.
+
+TEAM
+1 Data Architect, 2 Data Engineers, 1 Analytics Engineer, 1 BI Developer, 1 Project Manager. Genese Data Practice has delivered 12 data platform projects across retail and FMCG sectors in South Asia.
+
+TIMELINE
+Week 1-3: Data discovery and architecture design. Week 4-8: Core platform build (S3, Glue, Redshift). Week 9-12: ETL development for 6 source systems. Week 13-16: Dashboard development and UAT. Week 17-18: Go-live and hypercare. Total: 18 weeks.
+
+INVESTMENT
+Professional Services: USD 95,000. Estimated AWS monthly cost: USD 3,200/month. ROI: Projected 340% ROI over 2 years based on improved inventory turns and reduced analyst overhead.
+
+NEXT STEPS
+Approval of this proposal will initiate a 1-week data discovery sprint to catalogue all source systems and validate volume assumptions. RetailMax data stewards will be identified to participate in the governance workshop scheduled for Week 2.

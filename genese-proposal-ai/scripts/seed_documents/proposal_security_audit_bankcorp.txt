@@ -1,0 +1,23 @@
+PROPOSAL — Cloud Security Audit & Remediation
+Client: BankCorp Nepal
+Engagement Type: Security Audit
+Date: March 2024
+Prepared by: Genese Solution
+
+EXECUTIVE SUMMARY
+Genese Solution proposes a comprehensive AWS cloud security audit and remediation engagement for BankCorp Nepal. This 8-week engagement will assess BankCorp's AWS environment against the Nepal Rastra Bank IT Security Framework, CIS AWS Foundations Benchmark, and PCI-DSS v4.0, delivering a prioritised remediation roadmap and implementing critical controls.
+
+PROBLEM STATEMENT
+BankCorp Nepal's AWS environment was established 3 years ago without a formal security framework, resulting in accumulated misconfigurations identified in a recent internal audit. Key concerns: 47 S3 buckets without server-side encryption, IAM users with console access and no MFA enforcement, unrestricted security group rules in the production VPC, no CloudTrail log integrity validation, and third-party vendor access not governed by SCP policies. Nepal Rastra Bank's upcoming IT audit requires documented compliance evidence.
+
+PROPOSED SOLUTION
+Phase 1 (Weeks 1-2): AWS security assessment using Prowler, AWS Security Hub, and manual review covering IAM, S3, EC2, RDS, networking, and logging. Phase 2 (Weeks 3-4): Automated remediation of critical and high findings using AWS Config Remediation and Lambda-based auto-fix. Phase 3 (Weeks 5-6): Implementation of preventative controls — SCPs, Permission Boundaries, and AWS Config Rules. Phase 4 (Weeks 7-8): Security documentation for NRB audit and team training.
+
+SOLUTION ARCHITECTURE
+Post-remediation security architecture: AWS Security Hub as central findings aggregator, Amazon GuardDuty for threat detection, Amazon Macie for S3 sensitive data discovery, AWS CloudTrail with CloudWatch Logs and integrity validation, AWS Config with 45+ managed rules for continuous compliance, AWS IAM Identity Center replacing individual IAM users, AWS Firewall Manager for centralised WAF and security group management, VPC Flow Logs with Amazon Athena for network analysis, Automated nightly security posture reports via Lambda + SES.
+
+INVESTMENT
+Security Audit (Fixed Price): USD 28,000. Remediation Implementation (Fixed Price): USD 35,000. Total: USD 63,000. Post-remediation managed security service available at USD 4,500/month. ROI: Avoidance of NRB penalties (up to USD 500,000 for critical compliance failures) and reduction in breach risk.
+
+NEXT STEPS
+Genese requests read-only access (SecurityAudit IAM policy) to begin the assessment immediately upon contract signature. A preliminary findings briefing will be delivered within 5 business days.
