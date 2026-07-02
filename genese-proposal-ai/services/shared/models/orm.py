@@ -35,6 +35,10 @@ class Document(Base):
     s3_key = Column(String(1000), nullable=False)
     chunk_count = Column(Integer, default=0)
     uploaded_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    # Ingestion progress and token tracking
+    ingestion_status = Column(String(50), default="pending")  # pending, processing, complete, failed
+    embedding_model = Column(String(255))
+    embedding_tokens = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     uploader = relationship("User", back_populates="documents")
@@ -71,6 +75,10 @@ class GenerationJob(Base):
     tavily_sources = Column(JSON)      # web sources used
     output_s3_key = Column(String(1000))
     error_message = Column(Text)
+    # Token usage and model info
+    llm_model = Column(String(255))
+    input_tokens = Column(Integer, default=0)
+    output_tokens = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime)
 

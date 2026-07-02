@@ -9,6 +9,11 @@ export interface JobStatus {
   tavily_sources?: Array<{ url: string; title: string; excerpt: string; }>;
   download_url?: string;
   error_message?: string;
+  // Model + token usage
+  llm_model?: string;
+  input_tokens?: number;
+  output_tokens?: number;
+  llm_cost_usd?: number;
 }
 
 interface JobCtx {

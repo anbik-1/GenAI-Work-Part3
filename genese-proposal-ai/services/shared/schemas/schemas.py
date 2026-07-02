@@ -22,6 +22,9 @@ class DocumentListItem(BaseModel):
     engagement_type: Optional[str]
     client_name: Optional[str]
     chunk_count: int
+    ingestion_status: Optional[str]
+    embedding_model: Optional[str]
+    embedding_tokens: Optional[int]
     created_at: datetime
 
     class Config:
@@ -64,6 +67,10 @@ class GenerationJobStatus(BaseModel):
     tavily_sources: Optional[List[TavilySource]]
     download_url: Optional[str]    # presigned S3 URL when complete
     error_message: Optional[str]
+    # Model and token usage
+    llm_model: Optional[str]
+    input_tokens: Optional[int]
+    output_tokens: Optional[int]
     created_at: datetime
     completed_at: Optional[datetime]
 

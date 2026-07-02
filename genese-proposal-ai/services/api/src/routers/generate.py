@@ -75,19 +75,39 @@ async def get_job_status(
     if not job:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
 
-    # Build response
+    # Force SQLAlchemy to reload all columns (handles ALTER TABLE-added columns)
+    await db.refresh(job)
+
+    # Build response with cost calculation
     download_url = None
     if job.status == JOB_STATUS["COMPLETE"] and job.output_s3_key:
         download_url = get_presigned_url(job.output_s3_key)
 
-    return GenerationJobStatus(
-        job_id=job.id,
-        status=job.status,
-        status_detail=job.status_detail,
-        rag_context=job.rag_context,
-        tavily_sources=job.tavily_sources,
-        download_url=download_url,
-        error_message=job.error_message,
-        created_at=job.created_at,
-        completed_at=job.completed_at,
+    # Claude Sonnet 4.6 pricing (us-east-1):
+    # Input:  $0.003 per 1K tokens
+    # Output: $0.015 per 1K tokens
+    INPUT_PRICE_PER_1K  = 0.003
+    OUTPUT_PRICE_PER_1K = 0.015
+    input_tokens  = job.input_tokens  or 0
+    output_tokens = job.output_tokens or 0
+    llm_cost_usd = round(
+        (input_tokens  / 1000) * INPUT_PRICE_PER_1K +
+        (output_tokens / 1000) * OUTPUT_PRICE_PER_1K,
+        6  # 6 decimal places so small amounts show correctly
     )
+
+    return {
+        "job_id": str(job.id),
+        "status": job.status,
+        "status_detail": job.status_detail,
+        "rag_context": job.rag_context,
+        "tavily_sources": job.tavily_sources,
+        "download_url": download_url,
+        "error_message": job.error_message,
+        "llm_model": job.llm_model or "us.anthropic.claude-sonnet-4-6",
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "llm_cost_usd": llm_cost_usd,
+        "created_at": job.created_at.isoformat() if job.created_at else None,
+        "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+    }

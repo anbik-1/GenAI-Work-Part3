@@ -120,3 +120,69 @@ async def delete_document(
     # Delete from S3 and DB (cascade deletes chunks)
     delete_s3_object(document.s3_key)
     await db.execute(delete(Document).where(Document.id == document_id))
+
+
+@router.get("/{document_id}/status")
+async def get_document_status(
+    document_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(get_current_user_sub),
+):
+    """Get real-time ingestion status, phase, model info and token usage for a document."""
+    result = await db.execute(select(Document).where(Document.id == document_id))
+    document = result.scalar_one_or_none()
+    if not document:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+
+    # Phase display labels and descriptions
+    PHASE_LABELS = {
+        "pending":    {"label": "Pending",        "description": "Waiting to be processed"},
+        "loading":    {"label": "Loading",         "description": "Downloading from S3..."},
+        "chunking":   {"label": "Chunking",        "description": "Splitting into chunks (512 tokens, 50 overlap)..."},
+        "embedding":  {"label": "Embedding",       "description": f"Generating vectors with Titan Text v2..."},
+        "storing":    {"label": "Storing",         "description": "Writing chunks to pgvector (Aurora PostgreSQL)..."},
+        "complete":   {"label": "Complete",        "description": "Indexed and ready for RAG search"},
+        "failed":     {"label": "Failed",          "description": "Ingestion failed — check logs"},
+    }
+
+    current_status = document.ingestion_status or "pending"
+    phase_info = PHASE_LABELS.get(current_status, {"label": current_status, "description": ""})
+
+    # Determine completed phases for progress display
+    PHASE_ORDER = ["loading", "chunking", "embedding", "storing", "complete"]
+    current_idx = PHASE_ORDER.index(current_status) if current_status in PHASE_ORDER else -1
+
+    phases = []
+    for i, phase in enumerate(["loading", "chunking", "embedding", "storing"]):
+        if current_status == "complete":
+            state = "done"
+        elif current_status == phase:
+            state = "active"
+        elif current_idx > i:
+            state = "done"
+        else:
+            state = "pending"
+        phases.append({
+            "key": phase,
+            "label": PHASE_LABELS[phase]["label"],
+            "description": PHASE_LABELS[phase]["description"],
+            "state": state,
+        })
+
+    # Pricing: Titan Text v2 = $0.00002 per 1K tokens (input)
+    TITAN_PRICE_PER_1K = 0.00002
+    embedding_tokens = document.embedding_tokens or 0
+    embedding_cost = round((embedding_tokens / 1000) * TITAN_PRICE_PER_1K, 6)
+
+    return {
+        "document_id": str(document.id),
+        "filename": document.filename,
+        "ingestion_status": current_status,
+        "phase_label": phase_info["label"],
+        "phase_description": phase_info["description"],
+        "phases": phases,
+        "chunk_count": document.chunk_count or 0,
+        "embedding_model": document.embedding_model or "amazon.titan-embed-text-v2:0",
+        "embedding_tokens": embedding_tokens,
+        "embedding_cost_usd": embedding_cost,
+    }

@@ -17,6 +17,7 @@ from shared import (
 from .ingestion.document_loader import load_document_from_s3
 from .ingestion.text_splitter import split_text
 from .core.bedrock import embed_texts
+from .ingestion.embedder import embed_texts_with_usage
 from .ingestion.vector_store import upsert_chunks
 from .chains.orchestrator import run_generation_pipeline
 
@@ -29,10 +30,10 @@ logger = logging.getLogger(__name__)
 
 def process_ingestion_job(db, message: dict) -> None:
     """Download document from S3, chunk it, embed it, and store in pgvector."""
+    import time
     msg = IngestionJobMessage(**message)
     logger.info(f"Processing ingestion job: document_id={msg.document_id}")
 
-    # Get document record
     doc = db.execute(
         select(Document).where(Document.id == uuid.UUID(msg.document_id))
     ).scalar_one_or_none()
@@ -41,16 +42,66 @@ def process_ingestion_job(db, message: dict) -> None:
         logger.error(f"Document {msg.document_id} not found in DB")
         return
 
-    # Load → split → embed → store
-    text = load_document_from_s3(msg.s3_key)
-    chunks = split_text(text)
-    if not chunks:
-        logger.warning(f"No chunks extracted from {msg.s3_key}")
-        return
+    doc.ingestion_status = "processing"
+    db.commit()
 
-    embeddings = embed_texts(chunks)
-    count = upsert_chunks(db, doc, chunks, embeddings)
-    logger.info(f"Ingested {count} chunks for document {msg.document_id}")
+    try:
+        t0 = time.time()
+
+        # Phase 1: Load document from S3
+        doc.ingestion_status = "loading"
+        db.commit()
+        text = load_document_from_s3(msg.s3_key)
+        t_load = round(time.time() - t0, 2)
+        logger.info(f"[{msg.document_id}] Loaded in {t_load}s")
+
+        # Phase 2: Chunk the text
+        doc.ingestion_status = "chunking"
+        db.commit()
+        t1 = time.time()
+        chunks = split_text(text)
+        t_chunk = round(time.time() - t1, 2)
+        logger.info(f"[{msg.document_id}] Chunked into {len(chunks)} chunks in {t_chunk}s")
+
+        if not chunks:
+            logger.warning(f"No chunks extracted from {msg.s3_key}")
+            doc.ingestion_status = "failed"
+            db.commit()
+            return
+
+        # Phase 3: Embed chunks with Titan Text v2
+        doc.ingestion_status = "embedding"
+        db.commit()
+        t2 = time.time()
+        embeddings, usage_info = embed_texts_with_usage(chunks)
+        t_embed = round(time.time() - t2, 2)
+        logger.info(f"[{msg.document_id}] Embedded {len(chunks)} chunks "
+                    f"({usage_info.get('input_tokens', 0)} tokens) in {t_embed}s")
+
+        # Phase 4: Store in pgvector
+        doc.ingestion_status = "storing"
+        db.commit()
+        t3 = time.time()
+        count = upsert_chunks(db, doc, chunks, embeddings)
+        t_store = round(time.time() - t3, 2)
+        t_total = round(time.time() - t0, 2)
+
+        # Store final metadata
+        doc.embedding_model = usage_info.get("model", "amazon.titan-embed-text-v2:0")
+        doc.embedding_tokens = usage_info.get("input_tokens", 0)
+        doc.ingestion_status = "complete"
+        db.commit()
+
+        logger.info(
+            f"[{msg.document_id}] DONE — {count} chunks | "
+            f"load={t_load}s chunk={t_chunk}s embed={t_embed}s store={t_store}s total={t_total}s | "
+            f"tokens={usage_info.get('input_tokens', 0)} model={usage_info.get('model', '')}"
+        )
+    except Exception as e:
+        import traceback
+        logger.error(f"Ingestion failed for {msg.document_id}: {traceback.format_exc()}")
+        doc.ingestion_status = "failed"
+        db.commit()
 
 
 def process_generation_job(db, message: dict) -> None:

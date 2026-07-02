@@ -68,7 +68,7 @@ def run_generation_pipeline(
 
         # Step 3: Generate document content with Claude
         _update_job_status(db, job, JOB_STATUS["DRAFTING"], "Drafting document with AI...")
-        sections_content = generate_document(
+        result = generate_document(
             document_type=job.document_type,
             client_name=job.client_name,
             engagement_type=job.engagement_type,
@@ -77,6 +77,14 @@ def run_generation_pipeline(
             tavily_sources=tavily_context_str,
             context_notes=job.context_notes,
         )
+        sections_content = result["sections"]
+        token_usage = result["token_usage"]
+
+        # Store model and token usage on job
+        job.llm_model = token_usage.get("model", "")
+        job.input_tokens = token_usage.get("input_tokens", 0)
+        job.output_tokens = token_usage.get("output_tokens", 0)
+        db.commit()
 
         # Step 4: Format into branded .docx
         _update_job_status(db, job, JOB_STATUS["FORMATTING"], "Formatting branded document...")

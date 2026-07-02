@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { FileText, Download, ExternalLink, CheckCircle, Loader2, AlertCircle } from 'lucide-react';
+import { FileText, Download, ExternalLink, CheckCircle, Loader2, AlertCircle, Cpu, Coins, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -30,14 +30,24 @@ const ENGAGEMENT_TYPES = [
   { value: 'finops_optimization', label: 'FinOps Optimization' },
 ];
 
-const STATUS_STEPS = [
-  { key: 'queued', label: 'Queued', progress: 10 },
-  { key: 'retrieving_context', label: 'Searching knowledge base...', progress: 30 },
-  { key: 'validating_sources', label: 'Validating official documentation...', progress: 50 },
-  { key: 'drafting_document', label: 'Drafting document with AI...', progress: 75 },
-  { key: 'formatting_output', label: 'Formatting branded output...', progress: 90 },
-  { key: 'complete', label: 'Complete — ready for download!', progress: 100 },
+// Step definitions with progress %
+const PIPELINE_STEPS = [
+  { key: 'queued',              label: 'Queued',                         pct: 5,  icon: '⏳' },
+  { key: 'retrieving_context', label: 'Searching knowledge base...',    pct: 25, icon: '🔍' },
+  { key: 'validating_sources', label: 'Validating documentation...',   pct: 50, icon: '🌐' },
+  { key: 'drafting_document',  label: 'Claude is drafting...',         pct: 75, icon: '✍️' },
+  { key: 'formatting_output',  label: 'Formatting .docx...',           pct: 90, icon: '📄' },
+  { key: 'complete',           label: 'Complete!',                      pct: 100, icon: '✅' },
 ];
+
+// Friendly model name display
+function modelLabel(id?: string) {
+  if (!id) return 'Claude Sonnet 4.6';
+  if (id.includes('claude-sonnet-4-6')) return 'Claude Sonnet 4.6';
+  if (id.includes('claude-sonnet-4')) return 'Claude Sonnet 4';
+  if (id.includes('claude-haiku')) return 'Claude Haiku';
+  return id.split('/').pop() || id;
+}
 
 export function GeneratePage() {
   const { toast } = useToast();
@@ -53,7 +63,7 @@ export function GeneratePage() {
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!clientName.trim() || !requirements.trim()) {
-      toast({ title: 'Missing fields', description: 'Please fill in client name and key requirements.', variant: 'destructive' });
+      toast({ title: 'Missing fields', description: 'Please fill in client name and requirements.', variant: 'destructive' });
       return;
     }
     clearJob();
@@ -64,27 +74,36 @@ export function GeneratePage() {
         engagement_type: engagementType, key_requirements: requirements,
         context_notes: contextNotes || undefined,
       });
-      toast({ title: 'Generation started!', description: 'Your document is being drafted. This takes 1–3 minutes.', variant: 'success' });
+      toast({ title: 'Generation started!', description: 'Your document is being drafted. Sit tight.', variant: 'success' });
       startPolling(result.job_id);
     } catch (err) {
-      toast({ title: 'Error', description: err instanceof Error ? err.message : 'Failed to start generation', variant: 'destructive' });
+      toast({ title: 'Error', description: err instanceof Error ? err.message : 'Failed to start', variant: 'destructive' });
     } finally {
       setLoading(false);
     }
   };
 
-  const step = STATUS_STEPS.find(s => s.key === activeJob?.status) || STATUS_STEPS[0];
+  // Determine current step
+  const currentStep = PIPELINE_STEPS.find(s => s.key === activeJob?.status) || PIPELINE_STEPS[0];
   const isBusy = activeJob && !['complete', 'failed'].includes(activeJob.status);
+
+  // Cost and token display — compute client-side from token counts
+  const inputTokens  = (activeJob as any)?.input_tokens  || 0;
+  const outputTokens = (activeJob as any)?.output_tokens || 0;
+  const totalTokens  = inputTokens + outputTokens;
+  // Claude Sonnet 4.6: $0.003/1K input, $0.015/1K output
+  const costUsd = (inputTokens / 1000) * 0.003 + (outputTokens / 1000) * 0.015;
+  const modelName    = modelLabel((activeJob as any)?.llm_model);
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Generate Document</h1>
-        <p className="text-muted-foreground mt-1">AI-powered proposals, SoWs, and case studies — Genese-branded and ready to edit.</p>
+        <p className="text-muted-foreground mt-1">AI-powered proposals, SoWs and case studies — Genese-branded, ready to edit.</p>
       </div>
 
       <div className="grid lg:grid-cols-2 gap-6">
-        {/* Form */}
+        {/* ── Form ── */}
         <Card>
           <CardHeader><CardTitle>Document Details</CardTitle><CardDescription>Fill in the engagement context</CardDescription></CardHeader>
           <CardContent>
@@ -109,11 +128,11 @@ export function GeneratePage() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="req">Key Requirements *</Label>
-                <Textarea id="req" placeholder="Describe the client's main requirements, challenges, and goals. The more detail, the better the output." className="min-h-[120px]" value={requirements} onChange={e => setRequirements(e.target.value)} required />
+                <Textarea id="req" placeholder="Describe the client's main requirements, challenges and goals..." className="min-h-[120px]" value={requirements} onChange={e => setRequirements(e.target.value)} required />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="ctx">Additional Context (optional)</Label>
-                <Textarea id="ctx" placeholder="Any specific technologies, constraints, or preferences..." className="min-h-[80px]" value={contextNotes} onChange={e => setContextNotes(e.target.value)} />
+                <Textarea id="ctx" placeholder="Specific technologies, constraints, preferences..." className="min-h-[80px]" value={contextNotes} onChange={e => setContextNotes(e.target.value)} />
               </div>
               <Button type="submit" className="w-full" disabled={loading || !!isBusy}>
                 {loading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Starting...</> : <><FileText className="mr-2 h-4 w-4" />Generate Document</>}
@@ -122,85 +141,161 @@ export function GeneratePage() {
           </CardContent>
         </Card>
 
-        {/* Job Status */}
+        {/* ── Status Panel ── */}
         <div className="space-y-4">
           {activeJob ? (
-            <Card>
-              <CardHeader><CardTitle>Generation Status</CardTitle></CardHeader>
-              <CardContent className="space-y-4">
-                {activeJob.status === 'failed' ? (
-                  <Alert variant="destructive">
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertDescription>{activeJob.error_message || 'Generation failed. Please try again.'}</AlertDescription>
-                  </Alert>
-                ) : (
-                  <>
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">{step.label}</span>
-                        <span className="font-medium">{step.progress}%</span>
-                      </div>
-                      <Progress value={step.progress} />
+            <>
+              {/* Progress Card */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-base">Generation Progress</CardTitle>
+                    {/* Model Badge */}
+                    <div className="flex items-center space-x-1 text-xs bg-primary/10 text-primary px-2 py-1 rounded-full">
+                      <Cpu className="h-3 w-3" />
+                      <span>{modelName}</span>
                     </div>
-                    {activeJob.status === 'complete' && (
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {activeJob.status === 'failed' ? (
+                    <Alert variant="destructive">
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertDescription>{activeJob.error_message || 'Generation failed. Please try again.'}</AlertDescription>
+                    </Alert>
+                  ) : (
+                    <>
+                      {/* Step-by-step progress */}
                       <div className="space-y-3">
-                        <div className="flex items-center text-green-600 space-x-2">
-                          <CheckCircle className="h-5 w-5" />
-                          <span className="font-medium">Document ready!</span>
-                        </div>
-                        {activeJob.download_url && (
-                          <Button className="w-full" asChild>
-                            <a href={activeJob.download_url} download>
-                              <Download className="mr-2 h-4 w-4" />Download .docx
-                            </a>
-                          </Button>
-                        )}
+                        {PIPELINE_STEPS.filter(s => s.key !== 'queued').map((step) => {
+                          const stepIdx = PIPELINE_STEPS.findIndex(s => s.key === step.key);
+                          const curIdx  = PIPELINE_STEPS.findIndex(s => s.key === activeJob.status);
+                          const done    = stepIdx <= curIdx;
+                          const active  = step.key === activeJob.status;
+                          return (
+                            <div key={step.key} className="flex items-center space-x-3">
+                              <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs
+                                ${done && !active ? 'bg-green-500 text-white' : active ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
+                                {done && !active ? '✓' : active ? <Loader2 className="h-3 w-3 animate-spin" /> : stepIdx}
+                              </div>
+                              <span className={`text-sm ${active ? 'font-medium text-foreground' : done && !active ? 'text-muted-foreground line-through' : 'text-muted-foreground'}`}>
+                                {step.label}
+                              </span>
+                            </div>
+                          );
+                        })}
                       </div>
-                    )}
-                  </>
-                )}
-              </CardContent>
-            </Card>
+
+                      {/* Progress bar */}
+                      <div className="space-y-1">
+                        <Progress value={currentStep.pct} className="h-2" />
+                        <p className="text-xs text-right text-muted-foreground">{currentStep.pct}%</p>
+                      </div>
+
+                      {/* Complete */}
+                      {activeJob.status === 'complete' && (
+                        <div className="space-y-2">
+                          <div className="flex items-center text-green-600 space-x-2">
+                            <CheckCircle className="h-5 w-5" />
+                            <span className="font-medium">Document ready for download!</span>
+                          </div>
+                          {activeJob.download_url && (
+                            <Button className="w-full" asChild>
+                              <a href={activeJob.download_url} download>
+                                <Download className="mr-2 h-4 w-4" />Download .docx
+                              </a>
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Token + Cost Card — shows when tokens are available */}
+              {totalTokens > 0 && (
+                <Card className="border-primary/20">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm flex items-center space-x-2">
+                      <Coins className="h-4 w-4 text-primary" />
+                      <span>Usage & Cost</span>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div className="bg-muted/50 rounded-lg p-3">
+                        <p className="text-xs text-muted-foreground mb-1">Model</p>
+                        <p className="font-medium text-xs">{modelName}</p>
+                      </div>
+                      <div className="bg-muted/50 rounded-lg p-3">
+                        <p className="text-xs text-muted-foreground mb-1">Total Tokens</p>
+                        <p className="font-medium">{totalTokens.toLocaleString()}</p>
+                      </div>
+                      <div className="bg-muted/50 rounded-lg p-3">
+                        <p className="text-xs text-muted-foreground mb-1">Input Tokens</p>
+                        <p className="font-medium">{inputTokens.toLocaleString()}</p>
+                        <p className="text-xs text-muted-foreground">@ $0.003/1K</p>
+                      </div>
+                      <div className="bg-muted/50 rounded-lg p-3">
+                        <p className="text-xs text-muted-foreground mb-1">Output Tokens</p>
+                        <p className="font-medium">{outputTokens.toLocaleString()}</p>
+                        <p className="text-xs text-muted-foreground">@ $0.015/1K</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between bg-primary/5 rounded-lg px-3 py-2 mt-1">
+                      <span className="text-sm font-medium flex items-center space-x-1">
+                        <Zap className="h-3 w-3 text-primary" />
+                        <span>Estimated Cost</span>
+                      </span>
+                      <span className="font-bold text-primary">${costUsd.toFixed(4)}</span>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* RAG sources */}
+              {activeJob.rag_context && activeJob.rag_context.length > 0 && (
+                <Card>
+                  <CardHeader className="pb-2"><CardTitle className="text-sm">Knowledge Base Sources</CardTitle></CardHeader>
+                  <CardContent className="space-y-2">
+                    {activeJob.rag_context.slice(0, 3).map((ctx, i) => (
+                      <div key={i} className="text-sm border rounded p-2 space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium truncate">{ctx.source_document}</span>
+                          <Badge variant="secondary" className="ml-2 shrink-0 text-xs">{(ctx.similarity_score * 100).toFixed(0)}% match</Badge>
+                        </div>
+                        <p className="text-muted-foreground line-clamp-2 text-xs">{ctx.excerpt}</p>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Tavily sources */}
+              {activeJob.tavily_sources && activeJob.tavily_sources.length > 0 && (
+                <Card>
+                  <CardHeader className="pb-2"><CardTitle className="text-sm">Web Sources Validated</CardTitle></CardHeader>
+                  <CardContent className="space-y-2">
+                    {activeJob.tavily_sources.map((src, i) => (
+                      <div key={i} className="text-sm flex items-start space-x-2">
+                        <ExternalLink className="h-3 w-3 mt-1 shrink-0 text-primary" />
+                        <div>
+                          <a href={src.url} target="_blank" rel="noopener noreferrer" className="font-medium hover:underline text-primary text-xs">{src.title}</a>
+                          <p className="text-muted-foreground line-clamp-1 text-xs">{src.excerpt}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              )}
+            </>
           ) : (
             <Card className="border-dashed">
               <CardContent className="flex flex-col items-center justify-center py-12 text-center">
                 <FileText className="h-12 w-12 text-muted-foreground mb-4" />
-                <p className="text-muted-foreground">Fill in the form and click Generate to create your branded document.</p>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Sources panel */}
-          {activeJob?.rag_context && activeJob.rag_context.length > 0 && (
-            <Card>
-              <CardHeader><CardTitle className="text-base">Knowledge Base Sources Used</CardTitle></CardHeader>
-              <CardContent className="space-y-2">
-                {activeJob.rag_context.slice(0, 3).map((ctx, i) => (
-                  <div key={i} className="text-sm border rounded p-2 space-y-1">
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium truncate">{ctx.source_document}</span>
-                      <Badge variant="secondary" className="ml-2 shrink-0">{(ctx.similarity_score * 100).toFixed(0)}% match</Badge>
-                    </div>
-                    <p className="text-muted-foreground line-clamp-2">{ctx.excerpt}</p>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          )}
-
-          {activeJob?.tavily_sources && activeJob.tavily_sources.length > 0 && (
-            <Card>
-              <CardHeader><CardTitle className="text-base">Official Documentation Validated</CardTitle></CardHeader>
-              <CardContent className="space-y-2">
-                {activeJob.tavily_sources.map((src, i) => (
-                  <div key={i} className="text-sm flex items-start space-x-2">
-                    <ExternalLink className="h-3 w-3 mt-1 shrink-0 text-primary" />
-                    <div>
-                      <a href={src.url} target="_blank" rel="noopener noreferrer" className="font-medium hover:underline text-primary">{src.title}</a>
-                      <p className="text-muted-foreground line-clamp-1">{src.excerpt}</p>
-                    </div>
-                  </div>
-                ))}
+                <p className="text-muted-foreground">Fill in the form and click Generate.</p>
+                <p className="text-xs text-muted-foreground mt-2">Progress, model info, tokens and cost will appear here in real time.</p>
               </CardContent>
             </Card>
           )}
