@@ -7,6 +7,13 @@ build/
 out/
 cdk.out/
 *.tsbuildinfo
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Docker
+*.tar
 
 # Logs
 *.log
@@ -16,5 +23,10 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 
-# NOTE: Per project owner's request, .env and config files ARE committed
-# (this repo is private). Do not add .env here.
+# NOTE: .env files ARE committed per project owner's request
+# (private repo). Do not add .env here.
+
+# Python venv
+.venv/
+venv/
+env/
