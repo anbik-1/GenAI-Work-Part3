@@ -73,8 +73,9 @@ async def upload_document(
     )
     db.add(document)
     await db.flush()
+    await db.commit()  # Commit BEFORE publishing to SQS so worker can find the document
 
-    # Queue ingestion job
+    # Queue ingestion job (after commit so the worker sees the document in DB)
     msg = IngestionJobMessage(
         document_id=str(doc_id),
         s3_key=s3_key,
