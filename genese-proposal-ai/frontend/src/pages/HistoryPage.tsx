@@ -262,13 +262,15 @@ function TagManager({ jobId }: { jobId: string }) {
 interface LightboxProps {
   archData: ArchData;
   loading: boolean;
+  jobStatus?: string;
   onClose: () => void;
   onApprove: () => void;
   onRevise: (feedback: string) => void;
 }
 
-function ArchLightbox({ archData, loading, onClose, onApprove, onRevise }: LightboxProps) {
+function ArchLightbox({ archData, loading, jobStatus, onClose, onApprove, onRevise }: LightboxProps) {
   const [feedback, setFeedback] = useState('');
+  const canActOnArch = jobStatus === 'awaiting_review';
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -335,7 +337,7 @@ function ArchLightbox({ archData, loading, onClose, onApprove, onRevise }: Light
             </div>
           )}
 
-          {!loading && (
+          {!loading && canActOnArch && (
             <div className="space-y-2">
               <p className="text-sm font-medium text-muted-foreground">Request changes (optional):</p>
               <textarea
@@ -346,9 +348,14 @@ function ArchLightbox({ archData, loading, onClose, onApprove, onRevise }: Light
               />
             </div>
           )}
+          {!loading && !canActOnArch && (
+            <p className="text-xs text-muted-foreground text-center py-2">
+              This diagram is from a completed proposal — view only.
+            </p>
+          )}
         </div>
 
-        {!loading && (
+        {!loading && canActOnArch && (
           <div className="flex items-center gap-3 px-6 py-4 border-t shrink-0 bg-background">
             <Button
               className="flex-1 bg-green-600 hover:bg-green-700 text-white"
@@ -1245,6 +1252,7 @@ export function HistoryPage() {
         <ArchLightbox
           archData={archData ?? {}}
           loading={archLoading}
+          jobStatus={jobs.find(j => j.job_id === lightboxJobId)?.status}
           onClose={closeLightbox}
           onApprove={handleApprove}
           onRevise={handleRevise}

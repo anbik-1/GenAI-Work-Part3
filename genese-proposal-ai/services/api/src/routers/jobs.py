@@ -31,6 +31,7 @@ async def list_jobs(
             text(
                 """SELECT id, document_type, client_name, engagement_type,
                           status, error_message, outcome,
+                          key_requirements, context_notes,
                           created_at, completed_at
                    FROM generation_jobs
                    WHERE user_id = CAST(:user_id AS uuid)
@@ -52,6 +53,8 @@ async def list_jobs(
             "outcome": r["outcome"] if "outcome" in r.keys() else "pending",
             "created_at": r["created_at"].isoformat() if r["created_at"] else None,
             "completed_at": r["completed_at"].isoformat() if r["completed_at"] else None,
+            "key_requirements": r["key_requirements"] or "",
+            "context_notes": r["context_notes"] or "",
         }
         for r in rows
     ]

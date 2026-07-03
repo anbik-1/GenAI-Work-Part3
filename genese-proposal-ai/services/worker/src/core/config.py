@@ -13,7 +13,6 @@ class WorkerSettings(BaseSettings):
     generation_queue_url: str = Field(default="", alias="GENERATION_QUEUE_URL")
     db_secret_arn: str = Field(default="", alias="DB_SECRET_ARN")
     tavily_secret_arn: str = Field(default="", alias="TAVILY_SECRET_ARN")
-    redis_url: str = Field(default="", alias="REDIS_URL")
     app_env: str = Field(default="production", alias="APP_ENV")
     # SQS polling
     sqs_wait_time_seconds: int = Field(default=20, alias="SQS_WAIT_TIME_SECONDS")
