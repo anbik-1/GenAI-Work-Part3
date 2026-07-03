@@ -81,7 +81,7 @@ The system is entirely internal; only Genese consultants log in. The generated o
 | AWS Account | 654654306837 |
 | AWS Region | us-east-1 |
 | CloudFront Distribution ID | E31C3VQPMUFTQZ |
-| Demo login | demo@genesesolution.com / GeneseDemo123! |
+| Demo login | demo@genesesolution.com / GeneseDemo2024! |
 
 > **Note**: The ALB is internal (private). The React frontend calls it via CloudFront's `/api/*` behaviour, which strips the `/api` prefix and forwards to the ALB. Direct ALB access from the public internet is not possible.
 
@@ -116,7 +116,7 @@ The system is entirely internal; only Genese consultants log in. The generated o
                         │  │  │  ┌──────────────────────────┐   │    │        │
                         │  │  │  │  API Service             │   │    │        │
                         │  │  │  │  genese-api-service      │   │    │        │
-                        │  │  │  │  TD:23  0.5vCPU / 1GB    │   │    │        │
+                        │  │  │  │  TD:27  0.5vCPU / 1GB    │   │    │        │
                         │  │  │  │  sg-0574a979c34caa923    │   │    │        │
                         │  │  │  └────────────┬─────────────┘   │    │        │
                         │  │  │               │ enqueue job      │    │        │
@@ -132,7 +132,7 @@ The system is entirely internal; only Genese consultants log in. The generated o
                         │  │  │  ┌──────────────────────────┐   │    │        │
                         │  │  │  │  Worker Service          │   │    │        │
                         │  │  │  │  genese-worker-service   │   │    │        │
-                        │  │  │  │  TD:27  1vCPU / 2GB      │   │    │        │
+                        │  │  │  │  TD:28  1vCPU / 2GB      │   │    │        │
                         │  │  │  │  sg-06903044b2e9afe46    │   │    │        │
                         │  │  │  └────────────┬─────────────┘   │    │        │
                         │  │  └───────────────┼─────────────────┘    │        │

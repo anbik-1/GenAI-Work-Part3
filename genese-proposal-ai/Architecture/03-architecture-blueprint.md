@@ -5,6 +5,26 @@
 
 ---
 
+## Changelog
+
+| Date | Change |
+|---|---|
+| 2026-07-03 | Initial blueprint created |
+| 2026-07-03 | API TD:23→27 — model config, whitelist, SME endpoints, plain text instructions |
+| 2026-07-03 | Worker TD:27→28 — SME chain, draw.io builder, scoring chain, PDF builder |
+| 2026-07-03 | New DB columns: `sme_report`, `template_name`, `plain_text_instructions`, `drawio_s3_key`, `role` on users |
+| 2026-07-03 | New admin user: `admin@genesesolution.com` / `GeneseAdmin2024!` (role=admin) |
+| 2026-07-03 | Password updated: `demo@genesesolution.com` → `GeneseDemo2024!` |
+| 2026-07-03 | Public `/auth/signup` removed → replaced by admin-only `/auth/admin/create-user` |
+| 2026-07-03 | Model ID configurable via `BEDROCK_LLM_MODEL_ID` env var (no longer hardcoded) |
+| 2026-07-03 | Interactive SME review: pauses at `sme_reviewing`, shows report, user applies or skips |
+| 2026-07-03 | Arch diagram exports: draw.io XML + Mermaid generated alongside PNG |
+| 2026-07-03 | Client portal: public `/portal/:jobId` shareable link |
+| 2026-07-03 | Win/loss tracking: `outcome` column on jobs |
+| 2026-07-03 | Proposal scoring: `proposal_score` JSONB, Claude rates on 5 dimensions post-generation |
+
+---
+
 ## Table of Contents
 
 1. [System Overview](#1-system-overview)
@@ -173,7 +193,7 @@ API SG (sg-0574a979c34caa923)   Worker SG (sg-06903044b2e9afe46)
 
 ### API Service — genese-api-service
 
-**Task Definition**: TD:23  
+**Task Definition**: TD:27  
 **Image**: `654654306837.dkr.ecr.us-east-1.amazonaws.com/genese-proposal-ai-api`  
 **Entrypoint**: `uvicorn main:app --host 0.0.0.0 --port 8000`  
 **Network Mode**: awsvpc  
@@ -193,7 +213,7 @@ Required environment variables (resolved at container start):
 
 ### Worker Service — genese-worker-service
 
-**Task Definition**: TD:27  
+**Task Definition**: TD:28  
 **Image**: `654654306837.dkr.ecr.us-east-1.amazonaws.com/genese-proposal-ai-worker`  
 **Entrypoint**: `python main.py` (blocking SQS poll loop)  
 **Network Mode**: awsvpc  
