@@ -84,6 +84,7 @@ class GenerationJob(Base):
     arch_s3_key = Column(String(1000))            # S3 key for the PNG
     arch_iteration = Column(Integer, default=0)  # How many times iterated
     template_name = Column(String(100))           # 'plain_text', custom type, or None for default
+    plain_text_instructions = Column(Text)        # optional formatting instructions for plain_text template
     created_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime)
 

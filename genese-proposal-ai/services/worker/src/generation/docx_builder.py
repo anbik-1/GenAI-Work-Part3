@@ -168,6 +168,7 @@ def build_docx(
     sources: list[dict] | None = None,
     arch_png_bytes: bytes | None = None,
     template_name: str | None = None,
+    plain_text_instructions: str | None = None,
 ) -> bytes:
     """
     Build a .docx from generated sections.
@@ -180,7 +181,7 @@ def build_docx(
     # Plain-text format: skip all branding
     if template_name == "plain_text":
         return _build_plain_text_docx(sections_content, client_name, engagement_type,
-                                       sources, arch_png_bytes)
+                                       sources, arch_png_bytes, plain_text_instructions)
 
     # Custom S3 template lookup
     s3_key_type = template_name if template_name else document_type
@@ -198,6 +199,7 @@ def _build_plain_text_docx(
     engagement_type: str,
     sources: list[dict] | None = None,
     arch_png_bytes: bytes | None = None,
+    plain_text_instructions: str | None = None,
 ) -> bytes:
     """
     Minimal, unstyled .docx — plain headings and body text only.
@@ -218,6 +220,14 @@ def _build_plain_text_docx(
     note.runs[0].font.size = Pt(9)
     note.runs[0].font.color.rgb = RGBColor(0x88, 0x88, 0x88)
     doc.add_paragraph()  # spacer
+
+    # Format instructions (if provided)
+    if plain_text_instructions and plain_text_instructions.strip():
+        instructions_para = doc.add_paragraph(f"Format Instructions: {plain_text_instructions.strip()}")
+        instructions_para.runs[0].italic = True
+        instructions_para.runs[0].font.size = Pt(10)
+        instructions_para.runs[0].font.color.rgb = RGBColor(0x44, 0x44, 0x44)
+        doc.add_paragraph()  # spacer
 
     # Document title
     title = doc.add_heading(client_name, level=1)

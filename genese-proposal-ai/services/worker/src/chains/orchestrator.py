@@ -225,6 +225,7 @@ def run_formatting_pipeline(db: Session, job: GenerationJob, sme_review_enabled:
             sources=job.tavily_sources or [],
             arch_png_bytes=arch_png_bytes,
             template_name=getattr(job, "template_name", None),
+            plain_text_instructions=getattr(job, "plain_text_instructions", None),
         )
 
         output_key = f"generated/{job.id}/{job.client_name.replace(' ', '_')}_{job.document_type}.docx"

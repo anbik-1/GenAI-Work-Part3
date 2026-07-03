@@ -113,6 +113,7 @@ async def submit_generation_job(
         context_notes=request.context_notes,
         status=JOB_STATUS["QUEUED"],
         template_name=request.template_name,
+        plain_text_instructions=request.plain_text_instructions or None,
     )
     db.add(job)
     await db.flush()
@@ -128,6 +129,7 @@ async def submit_generation_job(
         user_id=str(user.id),
         template_name=request.template_name,
         model_id=request.model_id or None,
+        plain_text_instructions=request.plain_text_instructions or None,
     )
     publish_job(msg.model_dump())
 

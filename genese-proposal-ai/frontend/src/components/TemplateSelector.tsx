@@ -19,7 +19,7 @@ interface Template {
 
 interface Props {
   docType: string;
-  onChange: (templateName: string | null) => void;
+  onChange: (templateName: string | null, plainTextInstructions?: string) => void;
 }
 
 export function TemplateSelector({ docType, onChange }: Props) {
@@ -31,6 +31,7 @@ export function TemplateSelector({ docType, onChange }: Props) {
   const [uploading, setUploading] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
   const [collapsed, setCollapsed] = useState(true);
+  const [plainTextInstructions, setPlainTextInstructions] = useState('');
 
   const fetchTemplates = async () => {
     try {
@@ -49,9 +50,20 @@ export function TemplateSelector({ docType, onChange }: Props) {
     }
   }, [docType]);
 
+  // When plainTextInstructions changes and plain_text is selected, notify parent
+  useEffect(() => {
+    if (selected === 'plain_text') {
+      onChange('plain_text', plainTextInstructions);
+    }
+  }, [plainTextInstructions]);
+
   const handleSelect = (value: string | null) => {
     setSelected(value);
-    onChange(value === 'default' || value === null ? null : value);
+    if (value === 'plain_text') {
+      onChange('plain_text', plainTextInstructions);
+    } else {
+      onChange(value === 'default' || value === null ? null : value, undefined);
+    }
   };
 
   const handleUpload = async () => {
@@ -176,6 +188,20 @@ export function TemplateSelector({ docType, onChange }: Props) {
               </button>
             )}
           </div>
+
+          {/* Plain Text instructions — shown when plain_text is selected */}
+          {selected === 'plain_text' && (
+            <div className="space-y-2 mt-1">
+              <Label className="text-xs text-muted-foreground">Plain Text Instructions (optional)</Label>
+              <textarea
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm min-h-[80px] resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                placeholder="e.g. Use formal tone. Include a table of contents. Format pricing in NPR. Add page numbers. Keep each section under 2 paragraphs."
+                value={plainTextInstructions}
+                onChange={e => setPlainTextInstructions(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">These instructions guide how the plain text document is structured and formatted.</p>
+            </div>
+          )}
 
           {/* Upload new template toggle */}
           <div>

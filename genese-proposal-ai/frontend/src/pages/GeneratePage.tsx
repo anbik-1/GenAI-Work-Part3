@@ -138,6 +138,7 @@ export function GeneratePage() {
   const [engagementType, setEngagementType] = useState('aws_migration');
   const [requirements, setRequirements] = useState('');
   const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
+  const [plainTextInstructions, setPlainTextInstructions] = useState('');
   const [contextNotes, setContextNotes] = useState('');
   const [generationConstraints, setGenerationConstraints] = useState('');
   const [constraintsOpen, setConstraintsOpen] = useState(false);
@@ -342,6 +343,7 @@ export function GeneratePage() {
         generation_constraints: generationConstraints.trim() || undefined,
         template_name: selectedTemplate || undefined,
         model_id: selectedModelId || undefined,
+        plain_text_instructions: plainTextInstructions || undefined,
       });
       toast({ title: 'Generation started!', description: 'Your document is being drafted. Sit tight.', variant: 'success' });
       startPolling(result.job_id);
@@ -542,7 +544,7 @@ export function GeneratePage() {
             </div>
 
             {/* Template Selector */}
-            <TemplateSelector docType={docType} onChange={setSelectedTemplate} />
+            <TemplateSelector docType={docType} onChange={(name, instructions) => { setSelectedTemplate(name); setPlainTextInstructions(instructions || ''); }} />
 
             {/* ── AI Model Selector (collapsible) ── */}
             {(() => {

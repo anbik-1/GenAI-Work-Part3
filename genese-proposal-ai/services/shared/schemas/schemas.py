@@ -52,6 +52,9 @@ class GenerationRequest(BaseModel):
     # Optional: override the Bedrock LLM model for this specific generation job.
     # If not provided, the worker uses BEDROCK_LLM_MODEL_ID env var / default.
     model_id: Optional[str] = None
+    # Optional: custom formatting instructions for the plain_text template.
+    # Only used when template_name == "plain_text".
+    plain_text_instructions: Optional[str] = None
 
 
 class RagContextItem(BaseModel):
@@ -149,3 +152,6 @@ class GenerationJobMessage(BaseModel):
     # Optional: override the Bedrock LLM model for this job.
     # If None, the worker resolves via BEDROCK_LLM_MODEL_ID env var / default.
     model_id: Optional[str] = None
+    # Optional: custom formatting instructions for the plain_text template.
+    # Only used when template_name == "plain_text".
+    plain_text_instructions: Optional[str] = None
