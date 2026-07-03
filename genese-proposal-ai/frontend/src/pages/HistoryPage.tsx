@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Download, FileText, RefreshCw, ThumbsUp, Eye, Plus, X, Tag, Loader2, AlertCircle,
-  GitBranch, ChevronDown, ChevronUp, Trophy, Link2, Globe,
+  GitBranch, ChevronDown, ChevronUp, ChevronRight, Trophy, Link2, Globe,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -39,6 +39,8 @@ interface ProposalScore {
 interface JobDetail extends Job {
   download_url?: string;
   pdf_url?: string;
+  drawio_download_url?: string;
+  sections_content?: Record<string, string> | null;
   token_usage?: {
     input_tokens?: number;
     output_tokens?: number;
@@ -500,6 +502,33 @@ function OverviewModal({ job, detail, loading, onClose, onDownload }: OverviewMo
                   <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide block">Key Requirements</span>
                   <div className="rounded-md border bg-muted/30 px-4 py-3 text-sm whitespace-pre-wrap leading-relaxed max-h-56 overflow-y-auto">
                     {job.key_requirements}
+                  </div>
+                </div>
+              )}
+
+              {/* Inline Document Reader — shows full generated sections without downloading */}
+              {detail?.sections_content && Object.keys(detail.sections_content).length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Full Document</span>
+                    <span className="text-xs text-muted-foreground">Read inline — no download needed</span>
+                  </div>
+                  <div className="border rounded-lg overflow-hidden">
+                    {Object.entries(detail.sections_content).map(([key, value]) => (
+                      typeof value === 'string' && value.trim() ? (
+                        <details key={key} className="group border-b last:border-b-0">
+                          <summary className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-muted/40 transition-colors select-none">
+                            <span className="font-medium text-sm capitalize">
+                              {key.replace(/_/g, ' ')}
+                            </span>
+                            <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-90" />
+                          </summary>
+                          <div className="px-4 pb-4 pt-1 text-sm leading-relaxed whitespace-pre-wrap text-foreground/90 border-t bg-muted/10">
+                            {value}
+                          </div>
+                        </details>
+                      ) : null
+                    ))}
                   </div>
                 </div>
               )}

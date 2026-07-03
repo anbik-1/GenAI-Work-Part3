@@ -48,10 +48,11 @@ const CONSTRAINT_CHIPS = [
 const PIPELINE_STEPS = [
   { key: 'queued',              label: 'Queued',                        pct: 5,   icon: '⏳' },
   { key: 'retrieving_context', label: 'Searching knowledge base...',   pct: 20,  icon: '🔍' },
-  { key: 'validating_sources', label: 'Validating documentation...',  pct: 35,  icon: '🌐' },
+  { key: 'validating_sources', label: 'Fetching AWS documentation...',  pct: 35,  icon: '🌐' },
   { key: 'drafting_document',  label: 'Claude is drafting...',        pct: 55,  icon: '✍️' },
   { key: 'generating_diagram', label: 'Designing architecture...',    pct: 70,  icon: '🏗️' },
   { key: 'awaiting_review',    label: 'Review architecture',          pct: 80,  icon: '👁' },
+  { key: 'sme_reviewing',      label: 'SME domain review...',         pct: 85,  icon: '🎓' },
   { key: 'formatting_output',  label: 'Formatting .docx...',          pct: 92,  icon: '📄' },
   { key: 'complete',           label: 'Complete!',                     pct: 100, icon: '✅' },
 ];
@@ -87,14 +88,17 @@ export function GeneratePage() {
   const [archIteration, setArchIteration] = useState(0);
   const [archFeedback, setArchFeedback] = useState('');
   const [archLoading, setArchLoading] = useState(false);
+  const [smeEnabled, setSmeEnabled] = useState(false);
+  const [drawioUrl, setDrawioUrl] = useState<string | null>(null);
 
   // Fetch architecture preview when status is awaiting_review
   useEffect(() => {
     if (activeJob?.status === 'awaiting_review' && activeJob.job_id) {
-      api.get<{ preview_url: string; arch_iteration: number }>(`/generate/${activeJob.job_id}/architecture`)
+      api.get<{ preview_url: string; arch_iteration: number; drawio_download_url?: string }>(`/generate/${activeJob.job_id}/architecture`)
         .then(data => {
           setArchPreviewUrl(data.preview_url);
           setArchIteration(data.arch_iteration);
+          setDrawioUrl(data.drawio_download_url || null);
         })
         .catch(() => {});
     }
@@ -104,8 +108,12 @@ export function GeneratePage() {
     if (!activeJob) return;
     setArchLoading(true);
     try {
-      await api.post(`/generate/${activeJob.job_id}/approve`);
-      toast({ title: 'Architecture approved!', description: 'Generating your final document now...', variant: 'success' });
+      await api.post(`/generate/${activeJob.job_id}/approve`, { sme_review_enabled: smeEnabled });
+      toast({
+        title: 'Architecture approved!',
+        description: smeEnabled ? 'SME review + document formatting started...' : 'Generating your final document now...',
+        variant: 'success'
+      });
       setArchPreviewUrl(null);
     } catch (err) {
       toast({ title: 'Error', description: err instanceof Error ? err.message : 'Failed to approve', variant: 'destructive' });
@@ -512,6 +520,28 @@ export function GeneratePage() {
                           Loading diagram preview...
                         </div>
                       )}
+
+                      {/* draw.io download */}
+                      {drawioUrl && (
+                        <a href={drawioUrl} download className="flex items-center space-x-2 text-xs text-primary hover:underline">
+                          <Download className="h-3 w-3" />
+                          <span>Download as draw.io / Lucidchart XML</span>
+                        </a>
+                      )}
+
+                      {/* SME review toggle */}
+                      <label className="flex items-center space-x-2 cursor-pointer p-2 rounded-md border border-border hover:bg-muted/30 transition-colors">
+                        <input
+                          type="checkbox"
+                          checked={smeEnabled}
+                          onChange={e => setSmeEnabled(e.target.checked)}
+                          className="rounded"
+                        />
+                        <div>
+                          <span className="text-sm font-medium">Enable SME Review</span>
+                          <p className="text-xs text-muted-foreground">Claude acts as a domain expert and improves the document before formatting (adds ~30s)</p>
+                        </div>
+                      </label>
 
                       <Button className="w-full" onClick={handleApproveArch} disabled={archLoading}>
                         {archLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ThumbsUp className="mr-2 h-4 w-4" />}

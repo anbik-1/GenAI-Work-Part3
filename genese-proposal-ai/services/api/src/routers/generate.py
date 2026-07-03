@@ -164,9 +164,10 @@ async def extract_requirements(
     """Use Claude to extract structured requirements from pasted text."""
     import boto3, json
     from ..core.config import get_settings
+    from shared import BEDROCK_LLM_MODEL_ID
     settings = get_settings()
-    text = body.get("text", "")[:3000]
-    if not text.strip():
+    input_text = body.get("text", "")[:3000]
+    if not input_text.strip():
         raise HTTPException(status_code=400, detail="No text provided")
 
     bedrock = boto3.client("bedrock-runtime", region_name=settings.aws_region)
@@ -174,11 +175,10 @@ async def extract_requirements(
 {{"client_name": "company name if found or null", "key_requirements": "comprehensive requirements paragraph", "context_notes": "any technical constraints or preferences", "engagement_type": "one of: aws_migration, data_platform, managed_services, security_audit, devops_transformation, ai_ml_platform, cloud_native_development, finops_optimization, cloud_adoption, disaster_recovery, cloud_optimization, other"}}
 
 Text to analyze:
-{text}"""
+{input_text}"""
 
-    model_id = getattr(settings, 'bedrock_llm_model_id', 'us.anthropic.claude-sonnet-4-5')
     resp = bedrock.invoke_model(
-        modelId=model_id,
+        modelId=BEDROCK_LLM_MODEL_ID,
         body=json.dumps({
             "anthropic_version": "bedrock-2023-05-31",
             "max_tokens": 1024,
@@ -256,11 +256,18 @@ async def get_architecture(
 @router.post("/{job_id}/approve")
 async def approve_architecture(
     job_id: uuid.UUID,
+    body: dict = None,
     db: AsyncSession = Depends(get_db),
     _: str = Depends(get_current_user_sub),
 ):
-    """Approve the architecture — triggers final document formatting."""
+    """Approve the architecture — triggers final document formatting.
+    Accepts optional body: { sme_review_enabled: bool }
+    """
     from sqlalchemy import text as sql_text
+    if body is None:
+        body = {}
+    sme_review_enabled = bool(body.get("sme_review_enabled", False))
+
     row = (await db.execute(
         sql_text("SELECT id, status FROM generation_jobs WHERE id = :id"),
         {"id": str(job_id)}
@@ -275,11 +282,10 @@ async def approve_architecture(
             detail=f"Job is not awaiting review (current status: {row['status']})"
         )
 
-    # Publish "format" job message to SQS — worker will run run_formatting_pipeline
+    # Publish "format" job with sme_review_enabled flag
     from ..core.sqs import publish_job
-    publish_job({"job_type": "format", "job_id": str(job_id)})
+    publish_job({"job_type": "format", "job_id": str(job_id), "sme_review_enabled": sme_review_enabled})
 
-    # Mark as queued for formatting
     await db.execute(
         sql_text("UPDATE generation_jobs SET status='queued', status_detail='Approved — formatting document...' WHERE id=:id"),
         {"id": str(job_id)}
@@ -338,7 +344,7 @@ async def get_job_status(
         text("""SELECT id, status, status_detail, rag_context, tavily_sources,
                        output_s3_key, pdf_s3_key, error_message, llm_model,
                        input_tokens, output_tokens, created_at, completed_at,
-                       proposal_score, outcome
+                       proposal_score, outcome, sections_content, drawio_s3_key
                 FROM generation_jobs WHERE id = :job_id"""),
         {"job_id": str(job_id)}
     )).mappings().one_or_none()
@@ -383,4 +389,6 @@ async def get_job_status(
         "completed_at": row["completed_at"].isoformat() if row["completed_at"] else None,
         "proposal_score": row["proposal_score"] if "proposal_score" in row.keys() else None,
         "outcome": row["outcome"] if "outcome" in row.keys() else None,
+        "sections_content": row["sections_content"] if "sections_content" in row.keys() else None,
+        "drawio_download_url": get_presigned_url(row["drawio_s3_key"], expiry_seconds=3600) if row.get("drawio_s3_key") else None,
     }

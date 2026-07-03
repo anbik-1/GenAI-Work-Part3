@@ -22,7 +22,8 @@ JOB_STATUS = {
     "VALIDATING": "validating_sources",
     "DRAFTING": "drafting_document",
     "GENERATING_DIAGRAM": "generating_diagram",
-    "AWAITING_REVIEW": "awaiting_review",      # paused — waiting for user to review/approve
+    "AWAITING_REVIEW": "awaiting_review",
+    "SME_REVIEWING": "sme_reviewing",
     "FORMATTING": "formatting_output",
     "COMPLETE": "complete",
     "FAILED": "failed",

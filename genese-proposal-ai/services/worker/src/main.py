@@ -138,7 +138,8 @@ def process_format_job(db, message: dict) -> None:
     """Run the formatting pipeline after architecture approval."""
     import traceback
     job_id = message.get("job_id", "")
-    logger.info(f"Processing format job: job_id={job_id}")
+    sme_review_enabled = message.get("sme_review_enabled", False)
+    logger.info(f"Processing format job: job_id={job_id} sme_review={sme_review_enabled}")
     try:
         job = None
         for attempt in range(5):
@@ -153,7 +154,7 @@ def process_format_job(db, message: dict) -> None:
         if not job:
             logger.error(f"Job {job_id} not found for formatting")
             return
-        run_formatting_pipeline(db=db, job=job)
+        run_formatting_pipeline(db=db, job=job, sme_review_enabled=sme_review_enabled)
         logger.info(f"Format job {job_id} complete — status: {job.status}")
     except Exception as e:
         logger.error(f"process_format_job FAILED:\n{traceback.format_exc()}")

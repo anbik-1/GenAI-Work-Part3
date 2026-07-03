@@ -39,11 +39,12 @@ class DocumentListResponse(BaseModel):
 # ── Generation job schemas ────────────────────────────────────────────────────
 
 class GenerationRequest(BaseModel):
-    document_type: str = Field(..., pattern="^(proposal|sow|case_study)$")
+    document_type: str = Field(..., pattern="^(proposal|sow|case_study|other)$")
     client_name: str = Field(..., min_length=1, max_length=255)
     engagement_type: str = Field(..., min_length=1, max_length=100)
-    key_requirements: str = Field(..., min_length=10)
+    key_requirements: str = Field(..., min_length=3)
     context_notes: Optional[str] = None
+    generation_constraints: Optional[str] = None
     # Optional: template_type to use (e.g. "proposal"); None means built-in default
     template_name: Optional[str] = None
 

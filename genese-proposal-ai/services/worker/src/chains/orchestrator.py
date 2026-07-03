@@ -1,13 +1,20 @@
 """
 Generation orchestrator — coordinates the full pipeline:
-retrieve → validate → generate → format → upload
+retrieve → validate → draft → diagram → [SME review] → await_review → format → upload
+
+KEY DESIGN:
+- Sections are drafted ONCE in run_generation_pipeline, stored in sections_content column
+- run_formatting_pipeline reuses stored sections — never re-drafts
+- Tavily validation runs once upfront; its purpose is to ground Claude in real AWS docs
+- SME review is an optional step (controlled by sme_review_enabled flag in job message)
+- Architecture iteration only re-generates the diagram, NOT the document
 """
-import uuid
 import json
 import logging
 import boto3
 from datetime import datetime
 from sqlalchemy.orm import Session
+from sqlalchemy import text as sql_text
 from shared import GenerationJob, JOB_STATUS
 from ..chains.retrieval_chain import retrieve_relevant_chunks, format_rag_context
 from ..chains.validation_chain import validate_with_tavily, format_tavily_sources
@@ -19,55 +26,108 @@ logger = logging.getLogger(__name__)
 
 
 def _update_job_status(db: Session, job: GenerationJob, status: str, detail: str | None = None):
-    """Update job status in the database."""
     job.status = status
     job.status_detail = detail
     db.commit()
 
 
-def run_formatting_pipeline(db, job) -> None:
+def _load_sections(db: Session, job_id: str) -> dict | None:
+    """Load stored sections_content from DB (avoids re-drafting on format step)."""
+    row = db.execute(
+        sql_text("SELECT sections_content FROM generation_jobs WHERE id = CAST(:id AS uuid)"),
+        {"id": job_id}
+    ).mappings().one_or_none()
+    if row and row["sections_content"]:
+        return row["sections_content"]
+    return None
+
+
+def _save_sections(db: Session, job_id: str, sections: dict) -> None:
+    """Persist sections_content to DB so format step can reuse without re-drafting."""
+    try:
+        db.rollback()
+    except Exception:
+        pass
+    db.execute(
+        sql_text("UPDATE generation_jobs SET sections_content = CAST(:s AS jsonb) WHERE id = CAST(:id AS uuid)"),
+        {"s": json.dumps(sections), "id": job_id}
+    )
+    db.commit()
+
+
+def run_sme_review(db: Session, job: GenerationJob, sections: dict) -> dict:
     """
-    Called after user approves the architecture.
-    Regenerates the full document sections and builds the final .docx with the diagram.
+    SME (Subject Matter Expert) review step.
+    Claude acts as a domain expert for the engagement type, reviews the drafted sections,
+    searches the web for the latest best practices, and returns improved sections.
+    This step runs AFTER drafting and BEFORE formatting, only when sme_review_enabled=True.
+    """
+    from ..chains.sme_chain import run_sme_review_chain
+    _update_job_status(db, job, "sme_reviewing",
+                       f"SME reviewing document for {job.engagement_type.replace('_', ' ').title()} domain...")
+    try:
+        improved = run_sme_review_chain(
+            document_type=job.document_type,
+            client_name=job.client_name,
+            engagement_type=job.engagement_type,
+            key_requirements=job.key_requirements,
+            sections=sections,
+        )
+        logger.info(f"[orchestrator] SME review complete for job {job.id}")
+        return improved
+    except Exception as e:
+        logger.warning(f"[orchestrator] SME review failed (non-fatal): {e}")
+        return sections  # Fall back to original sections
+
+
+def run_formatting_pipeline(db: Session, job: GenerationJob, sme_review_enabled: bool = False) -> None:
+    """
+    Called AFTER user approves the architecture diagram.
+    Reuses the sections_content stored during the initial draft — does NOT re-draft.
+    Optionally runs SME review before building the .docx.
     """
     settings = get_settings()
     s3 = boto3.client("s3", region_name=settings.aws_region)
 
     try:
-        # Re-run retrieval for proposal sections (quick — already indexed)
-        _update_job_status(db, job, JOB_STATUS["RETRIEVING"], "Re-retrieving context for final document...")
-        chunks = retrieve_relevant_chunks(
-            db=db,
-            query=f"{job.document_type} {job.engagement_type} {job.key_requirements}",
-            engagement_type=job.engagement_type,
-        )
-        rag_context_str = format_rag_context(chunks)
+        # Load sections drafted in run_generation_pipeline — NO re-draft
+        sections_content = _load_sections(db, str(job.id))
 
-        tavily_sources = validate_with_tavily(
-            topic=f"{job.client_name} {job.engagement_type}",
-            engagement_type=job.engagement_type,
-        )
-        tavily_context_str = format_tavily_sources(tavily_sources)
+        if not sections_content:
+            # Fallback: should not happen, but re-draft if sections were lost
+            logger.warning(f"[orchestrator] sections_content missing for job {job.id}, re-drafting")
+            _update_job_status(db, job, JOB_STATUS["RETRIEVING"], "Re-retrieving context...")
+            chunks = retrieve_relevant_chunks(
+                db=db,
+                query=f"{job.document_type} {job.engagement_type} {job.key_requirements}",
+                engagement_type=job.engagement_type,
+            )
+            rag_str = format_rag_context(chunks)
+            tavily = validate_with_tavily(
+                topic=f"{job.client_name} {job.engagement_type}",
+                engagement_type=job.engagement_type,
+            )
+            _update_job_status(db, job, JOB_STATUS["DRAFTING"], "Re-drafting document...")
+            result = generate_document(
+                document_type=job.document_type,
+                client_name=job.client_name,
+                engagement_type=job.engagement_type,
+                key_requirements=job.key_requirements,
+                rag_context=rag_str,
+                tavily_sources=format_tavily_sources(tavily),
+                context_notes=job.context_notes,
+            )
+            sections_content = result["sections"]
+            _save_sections(db, str(job.id), sections_content)
+        else:
+            logger.info(f"[orchestrator] Reusing stored sections for job {job.id} — no re-draft needed")
 
-        _update_job_status(db, job, JOB_STATUS["DRAFTING"], "Drafting final document...")
-        result = generate_document(
-            document_type=job.document_type,
-            client_name=job.client_name,
-            engagement_type=job.engagement_type,
-            key_requirements=job.key_requirements,
-            rag_context=rag_context_str,
-            tavily_sources=tavily_context_str,
-            context_notes=job.context_notes,
-        )
-        sections_content = result["sections"]
-        token_usage = result["token_usage"]
-        job.llm_model = token_usage.get("model", "")
-        job.input_tokens = (job.input_tokens or 0) + token_usage.get("input_tokens", 0)
-        job.output_tokens = (job.output_tokens or 0) + token_usage.get("output_tokens", 0)
-        job.tavily_sources = tavily_sources
-        db.commit()
+        # Optional SME review
+        if sme_review_enabled:
+            sections_content = run_sme_review(db, job, sections_content)
+            _save_sections(db, str(job.id), sections_content)
 
-        # Download architecture PNG from S3 if available
+        # Download architecture PNG
         arch_png_bytes = None
         if job.arch_s3_key:
             try:
@@ -76,13 +136,13 @@ def run_formatting_pipeline(db, job) -> None:
             except Exception:
                 pass
 
-        _update_job_status(db, job, JOB_STATUS["FORMATTING"], "Formatting final document...")
+        _update_job_status(db, job, JOB_STATUS["FORMATTING"], "Formatting final .docx...")
         docx_bytes = build_docx(
             sections_content=sections_content,
             document_type=job.document_type,
             client_name=job.client_name,
             engagement_type=job.engagement_type,
-            sources=tavily_sources,
+            sources=job.tavily_sources or [],
             arch_png_bytes=arch_png_bytes,
         )
 
@@ -94,44 +154,39 @@ def run_formatting_pipeline(db, job) -> None:
             ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         )
 
-        # Generate PDF version (non-fatal)
+        # PDF generation (non-fatal)
         try:
             from ..generation.pdf_builder import build_pdf_from_docx
             pdf_bytes = build_pdf_from_docx(docx_bytes, job.client_name, job.document_type)
             pdf_key = f"generated/{job.id}/{job.client_name.replace(' ', '_')}_{job.document_type}.pdf"
-            s3.put_object(
-                Bucket=settings.documents_bucket,
-                Key=pdf_key,
-                Body=pdf_bytes,
-                ContentType="application/pdf",
-            )
-            from sqlalchemy import text as sql_text
+            s3.put_object(Bucket=settings.documents_bucket, Key=pdf_key, Body=pdf_bytes, ContentType="application/pdf")
+            try:
+                db.rollback()
+            except Exception:
+                pass
             db.execute(
-                sql_text("UPDATE generation_jobs SET pdf_s3_key = :key WHERE id = CAST(:id AS uuid)"),
-                {"key": pdf_key, "id": str(job.id)},
+                sql_text("UPDATE generation_jobs SET pdf_s3_key = :k WHERE id = CAST(:id AS uuid)"),
+                {"k": pdf_key, "id": str(job.id)}
             )
             db.commit()
         except Exception as pdf_err:
-            logger.warning(f"PDF generation failed (non-fatal): {pdf_err}")
+            logger.warning(f"[orchestrator] PDF generation failed (non-fatal): {pdf_err}")
 
-        # Score the proposal (non-fatal)
+        # Proposal scoring (non-fatal)
         try:
             from ..chains.scoring_chain import score_proposal
-            score_result = score_proposal(
-                document_type=job.document_type,
-                client_name=job.client_name,
-                sections_content=sections_content,
-            )
-            from sqlalchemy import text as sql_text
+            score = score_proposal(job.document_type, job.client_name, sections_content)
+            try:
+                db.rollback()
+            except Exception:
+                pass
             db.execute(
-                sql_text(
-                    "UPDATE generation_jobs SET proposal_score = CAST(:score AS jsonb) WHERE id = CAST(:id AS uuid)"
-                ),
-                {"score": json.dumps(score_result), "id": str(job.id)},
+                sql_text("UPDATE generation_jobs SET proposal_score = CAST(:s AS jsonb) WHERE id = CAST(:id AS uuid)"),
+                {"s": json.dumps(score), "id": str(job.id)}
             )
             db.commit()
-        except Exception:
-            pass  # Non-fatal
+        except Exception as score_err:
+            logger.warning(f"[orchestrator] Scoring failed (non-fatal): {score_err}")
 
         job.status = JOB_STATUS["COMPLETE"]
         job.status_detail = "Document ready for download"
@@ -141,7 +196,7 @@ def run_formatting_pipeline(db, job) -> None:
 
     except Exception as e:
         import traceback
-        print(f"[orchestrator] Formatting failed: {traceback.format_exc()}")
+        logger.error(f"[orchestrator] Formatting failed:\n{traceback.format_exc()}")
         job.status = JOB_STATUS["FAILED"]
         job.error_message = str(e)
         job.completed_at = datetime.utcnow()
@@ -149,49 +204,61 @@ def run_formatting_pipeline(db, job) -> None:
         raise
 
 
-def run_arch_iteration(db, job, feedback: str) -> None:
-    """Re-generate the architecture diagram with user feedback, return to awaiting_review."""
+def run_arch_iteration(db: Session, job: GenerationJob, feedback: str) -> None:
+    """
+    Re-generate ONLY the architecture diagram with user feedback.
+    Document sections are NOT re-drafted — they stay as stored.
+    Returns to awaiting_review status.
+    """
     settings = get_settings()
     s3 = boto3.client("s3", region_name=settings.aws_region)
 
     try:
-        _update_job_status(db, job, JOB_STATUS["GENERATING_DIAGRAM"], "Revising architecture based on your feedback...")
-        solution_summary = ""
-        previous_json = json.dumps(job.arch_json) if job.arch_json else None
+        _update_job_status(db, job, JOB_STATUS["GENERATING_DIAGRAM"],
+                           "Revising architecture based on your feedback...")
 
+        previous_json = json.dumps(job.arch_json) if job.arch_json else None
         from ..generation.architecture_generator import generate_architecture_diagram
         arch_json, _, png_bytes = generate_architecture_diagram(
             client_name=job.client_name,
             engagement_type=job.engagement_type,
             key_requirements=job.key_requirements,
-            solution_summary=solution_summary,
+            solution_summary="",
             feedback=feedback,
             previous_json=previous_json,
         )
 
         arch_s3_key = f"architectures/{job.id}/v{(job.arch_iteration or 0) + 1}.png"
-        s3.put_object(
-            Bucket=settings.documents_bucket,
-            Key=arch_s3_key,
-            Body=png_bytes,
-            ContentType="image/png",
-        )
+        s3.put_object(Bucket=settings.documents_bucket, Key=arch_s3_key, Body=png_bytes, ContentType="image/png")
 
-        from sqlalchemy import text as sql_text
+        # Generate draw.io XML export alongside PNG
+        try:
+            from ..generation.drawio_builder import generate_drawio_xml
+            drawio_xml = generate_drawio_xml(arch_json)
+            drawio_key = f"architectures/{job.id}/v{(job.arch_iteration or 0) + 1}.drawio"
+            s3.put_object(Bucket=settings.documents_bucket, Key=drawio_key,
+                          Body=drawio_xml.encode("utf-8"), ContentType="application/xml")
+            drawio_s3_key = drawio_key
+        except Exception as dx_err:
+            logger.warning(f"[orchestrator] draw.io export failed (non-fatal): {dx_err}")
+            drawio_s3_key = None
+
         try:
             db.rollback()
         except Exception:
             pass
         db.execute(
-            sql_text("""UPDATE generation_jobs 
+            sql_text("""UPDATE generation_jobs
                         SET arch_json = CAST(:arch_json AS jsonb),
                             arch_s3_key = :arch_s3_key,
-                            arch_iteration = :arch_iteration
-                        WHERE id = :job_id"""),
+                            arch_iteration = :arch_iteration,
+                            drawio_s3_key = :drawio_s3_key
+                        WHERE id = CAST(:job_id AS uuid)"""),
             {
                 "arch_json": json.dumps(arch_json),
                 "arch_s3_key": arch_s3_key,
                 "arch_iteration": (job.arch_iteration or 0) + 1,
+                "drawio_s3_key": drawio_s3_key,
                 "job_id": str(job.id),
             }
         )
@@ -202,36 +269,39 @@ def run_arch_iteration(db, job, feedback: str) -> None:
 
     except Exception as e:
         import traceback
-        print(f"[orchestrator] Arch iteration failed: {traceback.format_exc()}")
+        logger.error(f"[orchestrator] Arch iteration failed:\n{traceback.format_exc()}")
         job.status = JOB_STATUS["FAILED"]
         job.error_message = str(e)
         job.completed_at = datetime.utcnow()
         db.commit()
         raise
-def run_generation_pipeline(
 
-    db: Session,
-    job: GenerationJob,
-) -> None:
+
+def run_generation_pipeline(db: Session, job: GenerationJob, sme_review_enabled: bool = False) -> None:
     """
-    Full proposal generation pipeline. Updates job status at each step.
-    On completion, uploads .docx to S3 and marks job complete.
-    On failure, records the error and marks job failed.
+    Full proposal generation pipeline. Steps:
+    1. RETRIEVING  — semantic search of knowledge base (past proposals)
+    2. VALIDATING  — Tavily web search for live AWS/cloud docs (grounds Claude in facts)
+    3. DRAFTING    — Claude generates all proposal sections as JSON, stored in DB
+    4. DIAGRAMMING — Claude designs AWS architecture → diagrams renders PNG
+    5. [SME]       — Optional: domain expert review using web search (if enabled)
+    6. AWAIT_REVIEW— PAUSES: user reviews and approves architecture
+       → On approval: run_formatting_pipeline() builds .docx using stored sections
     """
     settings = get_settings()
     s3 = boto3.client("s3", region_name=settings.aws_region)
 
     try:
-        # Step 1: Retrieve relevant past work
-        _update_job_status(db, job, JOB_STATUS["RETRIEVING"], "Searching knowledge base...")
+        # ── Step 1: RAG retrieval ───────────────────────────────────────────
+        # Why: grounds Claude in Genese's actual past work, not generic content
+        _update_job_status(db, job, JOB_STATUS["RETRIEVING"],
+                           "Searching knowledge base for relevant past proposals...")
         chunks = retrieve_relevant_chunks(
             db=db,
             query=f"{job.document_type} {job.engagement_type} {job.key_requirements}",
             engagement_type=job.engagement_type,
         )
         rag_context_str = format_rag_context(chunks)
-
-        # Store RAG context on job for UI transparency
         job.rag_context = [
             {
                 "source_document": c["source_document"],
@@ -243,19 +313,31 @@ def run_generation_pipeline(
         ]
         db.commit()
 
-        # Step 2: Validate with Tavily
-        _update_job_status(db, job, JOB_STATUS["VALIDATING"], "Validating against official documentation...")
+        # ── Step 2: Tavily validation ───────────────────────────────────────
+        # Why: fetches live AWS/Azure/GCP documentation so Claude references
+        # real service names, current pricing tiers, and accurate capabilities.
+        # Without this, Claude may cite deprecated services or wrong pricing.
+        _update_job_status(db, job, JOB_STATUS["VALIDATING"],
+                           "Fetching latest AWS documentation to ground recommendations...")
         tavily_sources = validate_with_tavily(
             topic=f"{job.client_name} {job.engagement_type}",
             engagement_type=job.engagement_type,
         )
         tavily_context_str = format_tavily_sources(tavily_sources)
-
         job.tavily_sources = tavily_sources
         db.commit()
 
-        # Step 3: Generate document content with Claude
-        _update_job_status(db, job, JOB_STATUS["DRAFTING"], "Drafting document with AI...")
+        # ── Step 3: Draft document ──────────────────────────────────────────
+        # Claude generates all sections as structured JSON.
+        # Sections are stored so the format step can reuse them — no re-draft.
+        _update_job_status(db, job, JOB_STATUS["DRAFTING"],
+                           "Claude is drafting your document...")
+
+        # Include generation constraints if set (from the form's steering field)
+        full_context = job.context_notes or ""
+        if hasattr(job, 'generation_constraints') and job.generation_constraints:
+            full_context = f"{full_context}\n\nCONSTRAINTS:\n{job.generation_constraints}".strip()
+
         result = generate_document(
             document_type=job.document_type,
             client_name=job.client_name,
@@ -263,26 +345,24 @@ def run_generation_pipeline(
             key_requirements=job.key_requirements,
             rag_context=rag_context_str,
             tavily_sources=tavily_context_str,
-            context_notes=job.context_notes,
+            context_notes=full_context or None,
         )
         sections_content = result["sections"]
         token_usage = result["token_usage"]
-
-        # Store model and token usage on job
         job.llm_model = token_usage.get("model", "")
         job.input_tokens = token_usage.get("input_tokens", 0)
         job.output_tokens = token_usage.get("output_tokens", 0)
         db.commit()
 
-        # Step 4: Generate architecture diagram
-        _update_job_status(db, job, JOB_STATUS["GENERATING_DIAGRAM"], "Designing architecture diagram...")
+        # Persist sections — format step will read these, NOT re-draft
+        _save_sections(db, str(job.id), sections_content)
+
+        # ── Step 4: Generate architecture diagram ───────────────────────────
+        _update_job_status(db, job, JOB_STATUS["GENERATING_DIAGRAM"],
+                           "Designing AWS architecture diagram...")
         solution_summary = sections_content.get("proposed_solution") or sections_content.get("solution") or ""
         if isinstance(solution_summary, str):
             solution_summary = solution_summary[:600]
-
-        # Check if this is a re-iteration (feedback provided)
-        feedback = getattr(job, '_arch_feedback', None)
-        previous_json = json.dumps(job.arch_json) if job.arch_json else None
 
         try:
             from ..generation.architecture_generator import generate_architecture_diagram
@@ -291,88 +371,63 @@ def run_generation_pipeline(
                 engagement_type=job.engagement_type,
                 key_requirements=job.key_requirements,
                 solution_summary=solution_summary,
-                feedback=feedback,
-                previous_json=previous_json,
             )
 
-            # Upload PNG to S3
-            arch_s3_key = f"architectures/{job.id}/v{(job.arch_iteration or 0) + 1}.png"
-            s3.put_object(
-                Bucket=settings.documents_bucket,
-                Key=arch_s3_key,
-                Body=png_bytes,
-                ContentType="image/png",
-            )
+            arch_s3_key = f"architectures/{job.id}/v1.png"
+            s3.put_object(Bucket=settings.documents_bucket, Key=arch_s3_key,
+                          Body=png_bytes, ContentType="image/png")
 
-            # Write arch data directly via raw SQL to avoid ORM stale column cache
-            from sqlalchemy import text as sql_text
-            # Rollback any failed transaction before executing
+            # Generate draw.io XML export
+            drawio_s3_key = None
+            try:
+                from ..generation.drawio_builder import generate_drawio_xml
+                drawio_xml = generate_drawio_xml(arch_json)
+                drawio_key = f"architectures/{job.id}/v1.drawio"
+                s3.put_object(Bucket=settings.documents_bucket, Key=drawio_key,
+                              Body=drawio_xml.encode("utf-8"), ContentType="application/xml")
+                drawio_s3_key = drawio_key
+            except Exception as dx_err:
+                logger.warning(f"[orchestrator] draw.io export failed (non-fatal): {dx_err}")
+
             try:
                 db.rollback()
             except Exception:
                 pass
             db.execute(
-                sql_text("""UPDATE generation_jobs 
+                sql_text("""UPDATE generation_jobs
                             SET arch_json = CAST(:arch_json AS jsonb),
                                 arch_s3_key = :arch_s3_key,
-                                arch_iteration = :arch_iteration
+                                arch_iteration = 1,
+                                drawio_s3_key = :drawio_s3_key
                             WHERE id = CAST(:job_id AS uuid)"""),
                 {
                     "arch_json": json.dumps(arch_json),
                     "arch_s3_key": arch_s3_key,
-                    "arch_iteration": (job.arch_iteration or 0) + 1,
+                    "drawio_s3_key": drawio_s3_key,
                     "job_id": str(job.id),
                 }
             )
             db.commit()
-            logger.info(f"[orchestrator] Architecture diagram saved: {arch_s3_key}, PNG={len(png_bytes)} bytes")
+            logger.info(f"[orchestrator] Architecture saved: {arch_s3_key}")
 
         except Exception as arch_err:
-            import traceback as _arch_tb
-            logger.error(f"[orchestrator] Architecture generation FAILED: {_arch_tb.format_exc()}")
-            # Don't fail the whole job — proceed to awaiting_review without diagram
+            logger.error(f"[orchestrator] Architecture generation failed: {arch_err}")
+            # Non-fatal — continue to awaiting_review without diagram
 
-        # Step 5: Pause for user review of architecture
-        # Job stays in awaiting_review until user approves or requests changes
+        # ── Step 5 (optional): SME review before user sees it ──────────────
+        if sme_review_enabled:
+            updated_sections = run_sme_review(db, job, sections_content)
+            _save_sections(db, str(job.id), updated_sections)
+
+        # ── Step 6: Pause — wait for user to approve architecture ───────────
+        # run_formatting_pipeline() is called when user clicks Approve
         _update_job_status(db, job, JOB_STATUS["AWAITING_REVIEW"],
                            "Architecture ready — please review and approve or request changes")
-        # Store sections for use after approval
-        job.rag_context = [{"source_document": c["source_document"], "excerpt": c["content"][:300], "similarity_score": c["similarity_score"], "document_type": c["document_type"]} for c in chunks]
-        db.commit()
-
-        # ── Worker STOPS here. Resumes when API calls /generate/{id}/approve ──
         return
-
-        # Step 4: Format into branded .docx
-        _update_job_status(db, job, JOB_STATUS["FORMATTING"], "Formatting branded document...")
-        docx_bytes = build_docx(
-            sections_content=sections_content,
-            document_type=job.document_type,
-            client_name=job.client_name,
-            engagement_type=job.engagement_type,
-            sources=tavily_sources,
-        )
-
-        # Step 5: Upload to S3
-        output_key = f"generated/{job.id}/{job.client_name.replace(' ', '_')}_{job.document_type}.docx"
-        s3.put_object(
-            Bucket=settings.documents_bucket,
-            Key=output_key,
-            Body=docx_bytes,
-            ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        )
-
-        # Mark complete
-        job.status = JOB_STATUS["COMPLETE"]
-        job.status_detail = "Document ready for download"
-        job.output_s3_key = output_key
-        job.completed_at = datetime.utcnow()
-        db.commit()
 
     except Exception as e:
         import traceback
-        full_error = traceback.format_exc()
-        print(f"[orchestrator] FULL ERROR:\n{full_error}")
+        logger.error(f"[orchestrator] Generation pipeline failed:\n{traceback.format_exc()}")
         job.status = JOB_STATUS["FAILED"]
         job.error_message = str(e)
         job.completed_at = datetime.utcnow()
