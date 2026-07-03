@@ -54,9 +54,37 @@ def _get_template_from_s3(document_type: str) -> bytes | None:
         return None
 
 
+def _embed_arch_diagram(doc: Document, png_bytes: bytes) -> None:
+    """Embed the architecture PNG into the document."""
+    import tempfile
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = p.add_run()
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+        f.write(png_bytes)
+        tmp_path = f.name
+    try:
+        run.add_picture(tmp_path, width=Inches(6.0))
+    except Exception as e:
+        print(f"[docx_builder] Could not embed diagram: {e}")
+    finally:
+        import os
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass
+    cap = doc.add_paragraph("Figure: Proposed AWS Architecture")
+    cap.runs[0].italic = True
+    cap.runs[0].font.size = Pt(9)
+    cap.runs[0].font.color.rgb = RGBColor(0x88, 0x88, 0x88)
+    cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    doc.add_paragraph()
+
+
 def _fill_custom_template(template_bytes: bytes, sections_content: dict,
                            client_name: str, engagement_type: str,
-                           sources: list | None) -> bytes:
+                           sources: list | None,
+                           arch_png_bytes: bytes | None = None) -> bytes:
     """
     Use ONLY the styles, fonts, colors and page layout from the uploaded template.
     All existing body content is cleared — Claude's generated sections replace it.
@@ -121,6 +149,8 @@ def _fill_custom_template(template_bytes: bytes, sections_content: dict,
             continue
         title = SECTION_TITLE_MAP.get(section_key, section_key.replace("_", " ").title())
         _add_section(doc, title, str(content))
+        if section_key in ("architecture", "architecture_overview") and arch_png_bytes:
+            _embed_arch_diagram(doc, arch_png_bytes)
 
     if sources:
         _add_sources(doc, sources)
@@ -136,6 +166,7 @@ def build_docx(
     client_name: str,
     engagement_type: str,
     sources: list[dict] | None = None,
+    arch_png_bytes: bytes | None = None,
 ) -> bytes:
     """
     Build a .docx from generated sections.
@@ -144,9 +175,9 @@ def build_docx(
     template_bytes = _get_template_from_s3(document_type)
     if template_bytes:
         return _fill_custom_template(template_bytes, sections_content,
-                                      client_name, engagement_type, sources)
-    # Fall back to default programmatic template
-    return _build_default_docx(sections_content, document_type, client_name, engagement_type, sources)
+                                      client_name, engagement_type, sources, arch_png_bytes)
+    return _build_default_docx(sections_content, document_type, client_name,
+                                engagement_type, sources, arch_png_bytes)
 
 
 def _build_default_docx(
@@ -155,6 +186,7 @@ def _build_default_docx(
     client_name: str,
     engagement_type: str,
     sources: list[dict] | None = None,
+    arch_png_bytes: bytes | None = None,
 ) -> bytes:
     """Programmatic Genese-branded .docx (used when no custom template uploaded)."""
     doc = Document()
@@ -175,11 +207,13 @@ def _build_default_docx(
     # Document sections
     for section_key, content in sections_content.items():
         if section_key in ("parse_error", "content"):
-            # Fallback — dump raw content
             _add_section(doc, "Generated Content", str(content))
             continue
         title = SECTION_TITLE_MAP.get(section_key, section_key.replace("_", " ").title())
         _add_section(doc, title, str(content))
+        # Embed architecture diagram after the architecture section
+        if section_key in ("architecture", "architecture_overview") and arch_png_bytes:
+            _embed_arch_diagram(doc, arch_png_bytes)
 
     # Sources appendix
     if sources:

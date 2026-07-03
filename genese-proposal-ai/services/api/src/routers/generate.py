@@ -89,6 +89,172 @@ async def cancel_job(
     return {"job_id": str(job.id), "status": "cancelled"}
 
 
+@router.post("/{job_id}/retry")
+async def retry_job(
+    job_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user_sub: str = Depends(get_current_user_sub),
+):
+    """Retry a failed job with the same parameters."""
+    from sqlalchemy import text as sql_text
+    from datetime import datetime
+    from ..core.sqs import publish_job
+
+    row = (await db.execute(
+        sql_text("""SELECT id, status, document_type, client_name, engagement_type,
+                           key_requirements, context_notes, user_id
+                    FROM generation_jobs WHERE id = :id"""),
+        {"id": str(job_id)}
+    )).mappings().one_or_none()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if row["status"] not in ("failed", "complete"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Can only retry failed or completed jobs (current: {row['status']})"
+        )
+
+    # Reset job to queued state, clear previous results
+    await db.execute(
+        sql_text("""UPDATE generation_jobs SET
+            status = 'queued',
+            status_detail = NULL,
+            error_message = NULL,
+            rag_context = NULL,
+            tavily_sources = NULL,
+            output_s3_key = NULL,
+            arch_json = NULL,
+            arch_s3_key = NULL,
+            arch_iteration = 0,
+            llm_model = NULL,
+            input_tokens = 0,
+            output_tokens = 0,
+            completed_at = NULL
+            WHERE id = CAST(:id AS uuid)"""),
+        {"id": str(job_id)}
+    )
+
+    # Re-publish to SQS
+    from shared import GenerationJobMessage
+    msg = GenerationJobMessage(
+        job_type="generation",
+        job_id=str(job_id),
+        document_type=row["document_type"],
+        client_name=row["client_name"],
+        engagement_type=row["engagement_type"],
+        key_requirements=row["key_requirements"],
+        context_notes=row["context_notes"],
+        user_id=str(row["user_id"]) if row["user_id"] else "",
+    )
+    publish_job(msg.model_dump())
+
+    return {"job_id": str(job_id), "status": "queued", "message": "Job re-queued successfully"}
+
+
+@router.get("/{job_id}/architecture")
+async def get_architecture(
+    job_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(get_current_user_sub),
+):
+    """Get architecture diagram preview URL and JSON for a job in awaiting_review."""
+    from sqlalchemy import text
+    row = (await db.execute(
+        text("""SELECT id, status, arch_json, arch_s3_key, arch_iteration 
+                FROM generation_jobs WHERE id = :id"""),
+        {"id": str(job_id)}
+    )).mappings().one_or_none()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    preview_url = None
+    if row["arch_s3_key"]:
+        preview_url = get_presigned_url(row["arch_s3_key"], expiry_seconds=3600)
+
+    return {
+        "job_id": str(row["id"]),
+        "status": row["status"],
+        "arch_json": row["arch_json"],
+        "arch_s3_key": row["arch_s3_key"],
+        "arch_iteration": row["arch_iteration"] or 0,
+        "preview_url": preview_url,
+    }
+
+
+@router.post("/{job_id}/approve")
+async def approve_architecture(
+    job_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(get_current_user_sub),
+):
+    """Approve the architecture — triggers final document formatting."""
+    from sqlalchemy import text as sql_text
+    row = (await db.execute(
+        sql_text("SELECT id, status FROM generation_jobs WHERE id = :id"),
+        {"id": str(job_id)}
+    )).mappings().one_or_none()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if row["status"] != "awaiting_review":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Job is not awaiting review (current status: {row['status']})"
+        )
+
+    # Publish "format" job message to SQS — worker will run run_formatting_pipeline
+    from ..core.sqs import publish_job
+    publish_job({"job_type": "format", "job_id": str(job_id)})
+
+    # Mark as queued for formatting
+    await db.execute(
+        sql_text("UPDATE generation_jobs SET status='queued', status_detail='Approved — formatting document...' WHERE id=:id"),
+        {"id": str(job_id)}
+    )
+
+    return {"job_id": str(job_id), "status": "queued", "message": "Architecture approved. Generating final document..."}
+
+
+@router.post("/{job_id}/iterate-architecture")
+async def iterate_architecture(
+    job_id: uuid.UUID,
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(get_current_user_sub),
+):
+    """Request architecture changes with feedback."""
+    feedback = body.get("feedback", "")
+    if not feedback.strip():
+        raise HTTPException(status_code=400, detail="Feedback is required")
+
+    from sqlalchemy import text as sql_text
+    row = (await db.execute(
+        sql_text("SELECT id, status FROM generation_jobs WHERE id = :id"),
+        {"id": str(job_id)}
+    )).mappings().one_or_none()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if row["status"] != "awaiting_review":
+        raise HTTPException(status_code=409, detail="Job is not awaiting review")
+
+    # Send iteration job to SQS
+    from ..core.sqs import publish_job
+    publish_job({"job_type": "arch_iterate", "job_id": str(job_id), "feedback": feedback})
+
+    await db.execute(
+        sql_text("UPDATE generation_jobs SET status='generating_diagram', status_detail='Revising architecture...' WHERE id=:id"),
+        {"id": str(job_id)}
+    )
+
+    return {"job_id": str(job_id), "status": "generating_diagram", "message": "Revising architecture based on your feedback..."}
+
+
 @router.get("/{job_id}")
 async def get_job_status(
     job_id: uuid.UUID,

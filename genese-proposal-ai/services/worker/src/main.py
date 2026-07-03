@@ -19,7 +19,7 @@ from .ingestion.text_splitter import split_text
 from .core.bedrock import embed_texts
 from .ingestion.embedder import embed_texts_with_usage
 from .ingestion.vector_store import upsert_chunks
-from .chains.orchestrator import run_generation_pipeline
+from .chains.orchestrator import run_generation_pipeline, run_formatting_pipeline, run_arch_iteration
 
 logging.basicConfig(
     level=logging.INFO,
@@ -134,6 +134,57 @@ def process_generation_job(db, message: dict) -> None:
     logger.info(f"Generation job {msg.job_id} complete — status: {job.status}")
 
 
+def process_format_job(db, message: dict) -> None:
+    """Run the formatting pipeline after architecture approval."""
+    import traceback
+    job_id = message.get("job_id", "")
+    logger.info(f"Processing format job: job_id={job_id}")
+    try:
+        job = None
+        for attempt in range(5):
+            try:
+                result = db.execute(select(GenerationJob).where(GenerationJob.id == uuid.UUID(job_id)))
+                job = result.scalar_one_or_none()
+            except Exception as e:
+                logger.warning(f"DB query failed on attempt {attempt+1}: {e}")
+            if job:
+                break
+            time.sleep(2 ** attempt)
+        if not job:
+            logger.error(f"Job {job_id} not found for formatting")
+            return
+        run_formatting_pipeline(db=db, job=job)
+        logger.info(f"Format job {job_id} complete — status: {job.status}")
+    except Exception as e:
+        logger.error(f"process_format_job FAILED:\n{traceback.format_exc()}")
+
+
+def process_arch_iterate_job(db, message: dict) -> None:
+    """Re-generate architecture with user feedback."""
+    import traceback
+    job_id = message.get("job_id", "")
+    feedback = message.get("feedback", "")
+    logger.info(f"Processing arch_iterate job: job_id={job_id}")
+    try:
+        job = None
+        for attempt in range(5):
+            try:
+                result = db.execute(select(GenerationJob).where(GenerationJob.id == uuid.UUID(job_id)))
+                job = result.scalar_one_or_none()
+            except Exception as e:
+                logger.warning(f"DB query failed on attempt {attempt+1}: {e}")
+            if job:
+                break
+            time.sleep(2 ** attempt)
+        if not job:
+            logger.error(f"Job {job_id} not found for arch iteration")
+            return
+        run_arch_iteration(db=db, job=job, feedback=feedback)
+        logger.info(f"Arch iteration job {job_id} complete — status: {job.status}")
+    except Exception as e:
+        logger.error(f"process_arch_iterate_job FAILED:\n{traceback.format_exc()}")
+
+
 def main():
     """Main SQS consumer loop — runs indefinitely, polling for messages."""
     settings = get_settings()
@@ -163,6 +214,10 @@ def main():
                     for db in get_db():
                         if job_type == "ingestion":
                             process_ingestion_job(db, body)
+                        elif job_type == "format":
+                            process_format_job(db, body)
+                        elif job_type == "arch_iterate":
+                            process_arch_iterate_job(db, body)
                         else:
                             process_generation_job(db, body)
 

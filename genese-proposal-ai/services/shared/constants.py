@@ -21,6 +21,8 @@ JOB_STATUS = {
     "RETRIEVING": "retrieving_context",
     "VALIDATING": "validating_sources",
     "DRAFTING": "drafting_document",
+    "GENERATING_DIAGRAM": "generating_diagram",
+    "AWAITING_REVIEW": "awaiting_review",      # paused — waiting for user to review/approve
     "FORMATTING": "formatting_output",
     "COMPLETE": "complete",
     "FAILED": "failed",

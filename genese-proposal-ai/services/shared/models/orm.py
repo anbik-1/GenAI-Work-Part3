@@ -79,6 +79,10 @@ class GenerationJob(Base):
     llm_model = Column(String(255))
     input_tokens = Column(Integer, default=0)
     output_tokens = Column(Integer, default=0)
+    # Architecture diagram
+    arch_json = Column(JSON)                      # Claude's architecture design
+    arch_s3_key = Column(String(1000))            # S3 key for the PNG
+    arch_iteration = Column(Integer, default=0)  # How many times iterated
     created_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime)
 

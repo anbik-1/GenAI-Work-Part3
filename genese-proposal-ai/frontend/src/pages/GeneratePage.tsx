@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { FileText, Download, ExternalLink, CheckCircle, Loader2, AlertCircle, Cpu, Coins, Zap } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { FileText, Download, ExternalLink, CheckCircle, Loader2, AlertCircle, Cpu, Coins, Zap, ThumbsUp, RefreshCw, MessageSquare } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -33,10 +33,12 @@ const ENGAGEMENT_TYPES = [
 // Step definitions with progress %
 const PIPELINE_STEPS = [
   { key: 'queued',              label: 'Queued',                         pct: 5,  icon: '⏳' },
-  { key: 'retrieving_context', label: 'Searching knowledge base...',    pct: 25, icon: '🔍' },
-  { key: 'validating_sources', label: 'Validating documentation...',   pct: 50, icon: '🌐' },
-  { key: 'drafting_document',  label: 'Claude is drafting...',         pct: 75, icon: '✍️' },
-  { key: 'formatting_output',  label: 'Formatting .docx...',           pct: 90, icon: '📄' },
+  { key: 'retrieving_context', label: 'Searching knowledge base...',    pct: 20, icon: '🔍' },
+  { key: 'validating_sources', label: 'Validating documentation...',   pct: 35, icon: '🌐' },
+  { key: 'drafting_document',  label: 'Claude is drafting...',         pct: 55, icon: '✍️' },
+  { key: 'generating_diagram', label: 'Designing architecture...',     pct: 70, icon: '🏗️' },
+  { key: 'awaiting_review',    label: 'Review architecture',           pct: 80, icon: '👁' },
+  { key: 'formatting_output',  label: 'Formatting .docx...',           pct: 92, icon: '📄' },
   { key: 'complete',           label: 'Complete!',                      pct: 100, icon: '✅' },
 ];
 
@@ -59,8 +61,55 @@ export function GeneratePage() {
   const [requirements, setRequirements] = useState('');
   const [contextNotes, setContextNotes] = useState('');
   const [loading, setLoading] = useState(false);
+  // Architecture review state
+  const [archPreviewUrl, setArchPreviewUrl] = useState<string | null>(null);
+  const [archIteration, setArchIteration] = useState(0);
+  const [archFeedback, setArchFeedback] = useState('');
+  const [archLoading, setArchLoading] = useState(false);
 
+  // Fetch architecture preview when status is awaiting_review
+  useEffect(() => {
+    if (activeJob?.status === 'awaiting_review' && activeJob.job_id) {
+      api.get<{ preview_url: string; arch_iteration: number }>(`/generate/${activeJob.job_id}/architecture`)
+        .then(data => {
+          setArchPreviewUrl(data.preview_url);
+          setArchIteration(data.arch_iteration);
+        })
+        .catch(() => {});
+    }
+  }, [activeJob?.status, activeJob?.job_id]);
+
+  const handleApproveArch = async () => {
+    if (!activeJob) return;
+    setArchLoading(true);
+    try {
+      await api.post(`/generate/${activeJob.job_id}/approve`);
+      toast({ title: 'Architecture approved!', description: 'Generating your final document now...', variant: 'success' });
+      setArchPreviewUrl(null);
+      // JobContext will continue polling and show the new status
+    } catch (err) {
+      toast({ title: 'Error', description: err instanceof Error ? err.message : 'Failed to approve', variant: 'destructive' });
+    } finally {
+      setArchLoading(false);
+    }
+  };
+
+  const handleIterateArch = async () => {
+    if (!activeJob || !archFeedback.trim()) return;
+    setArchLoading(true);
+    try {
+      await api.post(`/generate/${activeJob.job_id}/iterate-architecture`, { feedback: archFeedback });
+      toast({ title: 'Feedback submitted!', description: 'Revising architecture...', variant: 'success' });
+      setArchFeedback('');
+      setArchPreviewUrl(null);
+    } catch (err) {
+      toast({ title: 'Error', description: err instanceof Error ? err.message : 'Failed', variant: 'destructive' });
+    } finally {
+      setArchLoading(false);
+    }
+  };
   const handleGenerate = async (e: React.FormEvent) => {
+
     e.preventDefault();
     if (!clientName.trim() || !requirements.trim()) {
       toast({ title: 'Missing fields', description: 'Please fill in client name and requirements.', variant: 'destructive' });
@@ -181,7 +230,7 @@ export function GeneratePage() {
                         </AlertDescription>
                       </Alert>
                       <Button className="w-full" variant="outline" onClick={() => { clearJob(); }}>
-                        ↩ Try Again
+                        Try Again
                       </Button>
                     </div>
                   ) : (
@@ -197,7 +246,7 @@ export function GeneratePage() {
                             <div key={step.key} className="flex items-center space-x-3">
                               <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs
                                 ${done && !active ? 'bg-green-500 text-white' : active ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
-                                {done && !active ? '✓' : active ? <Loader2 className="h-3 w-3 animate-spin" /> : stepIdx}
+                                {done && !active ? '\u2713' : active ? <Loader2 className="h-3 w-3 animate-spin" /> : stepIdx}
                               </div>
                               <span className={`text-sm ${active ? 'font-medium text-foreground' : done && !active ? 'text-muted-foreground line-through' : 'text-muted-foreground'}`}>
                                 {step.label}
@@ -227,8 +276,62 @@ export function GeneratePage() {
                             } catch { /* ignore — job may have started */ }
                           }}
                         >
-                          ✕ Cancel
+                          Cancel
                         </Button>
+                      )}
+
+                      {/* Architecture review panel */}
+                      {activeJob.status === 'awaiting_review' && (
+                        <div className="border rounded-lg p-4 space-y-3 bg-primary/5 border-primary/20">
+                          <div className="flex items-center space-x-2">
+                            <span className="text-lg">&#x1F3D7;</span>
+                            <div>
+                              <p className="font-medium text-sm">Architecture Ready — Your Review Required</p>
+                              <p className="text-xs text-muted-foreground">Iteration {archIteration} · Approve to generate final .docx</p>
+                            </div>
+                          </div>
+
+                          {/* Diagram preview */}
+                          {archPreviewUrl ? (
+                            <div className="border rounded overflow-hidden bg-white">
+                              <img
+                                src={archPreviewUrl}
+                                alt="Architecture Diagram"
+                                className="w-full h-auto max-h-80 object-contain"
+                              />
+                            </div>
+                          ) : (
+                            <div className="border rounded p-4 text-center text-sm text-muted-foreground">
+                              <Loader2 className="h-4 w-4 animate-spin mx-auto mb-1" />
+                              Loading diagram preview...
+                            </div>
+                          )}
+
+                          {/* Approve button */}
+                          <Button className="w-full" onClick={handleApproveArch} disabled={archLoading}>
+                            {archLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ThumbsUp className="mr-2 h-4 w-4" />}
+                            Approve Architecture & Generate Document
+                          </Button>
+
+                          {/* Iterate with feedback */}
+                          <div className="space-y-2">
+                            <p className="text-xs text-muted-foreground font-medium">Or request changes:</p>
+                            <textarea
+                              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm min-h-[70px] resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              placeholder="e.g. Add a WAF in front of CloudFront, remove the EC2 and use Lambda instead, add a separate staging VPC..."
+                              value={archFeedback}
+                              onChange={e => setArchFeedback(e.target.value)}
+                            />
+                            <Button
+                              variant="outline" className="w-full"
+                              onClick={handleIterateArch}
+                              disabled={archLoading || !archFeedback.trim()}
+                            >
+                              {archLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                              Revise Architecture
+                            </Button>
+                          </div>
+                        </div>
                       )}
 
                       {/* Complete */}

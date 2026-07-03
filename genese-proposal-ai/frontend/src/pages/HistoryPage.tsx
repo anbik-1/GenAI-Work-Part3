@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Download, FileText } from 'lucide-react';
+import { Download, FileText, RefreshCw, ThumbsUp, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge, Skeleton } from '@/components/ui/misc';
@@ -16,19 +16,74 @@ export function HistoryPage() {
   const { toast } = useToast();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
+  const [reviewJobId, setReviewJobId] = useState<string | null>(null);
+  const [archData, setArchData] = useState<{ preview_url?: string; arch_json?: any; arch_iteration?: number } | null>(null);
+  const [archFeedback, setArchFeedback] = useState('');
+  const [archLoading, setArchLoading] = useState(false);
 
-  useEffect(() => {
-    api.get<Job[]>('/jobs')
-      .then(setJobs)
-      .catch(() => toast({ title: 'Failed to load history', variant: 'destructive' }))
-      .finally(() => setLoading(false));
-  }, []);
+  const fetchJobs = async () => {
+    try {
+      const data = await api.get<Job[]>('/jobs');
+      setJobs(data);
+    } catch { toast({ title: 'Failed to load history', variant: 'destructive' }); }
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { fetchJobs(); }, []);
 
   const handleDownload = async (jobId: string) => {
     try {
       const result = await api.get<{ download_url: string }>(`/generate/${jobId}`);
       if (result.download_url) window.open(result.download_url, '_blank');
     } catch { toast({ title: 'Download failed', variant: 'destructive' }); }
+  };
+
+  const openArchReview = async (jobId: string) => {
+    setArchLoading(true);
+    setReviewJobId(jobId);
+    try {
+      const data = await api.get<any>(`/generate/${jobId}/architecture`);
+      setArchData(data);
+    } catch { toast({ title: 'Failed to load architecture', variant: 'destructive' }); }
+    finally { setArchLoading(false); }
+  };
+
+  const handleApprove = async () => {
+    if (!reviewJobId) return;
+    setArchLoading(true);
+    try {
+      await api.post(`/generate/${reviewJobId}/approve`);
+      toast({ title: 'Approved!', description: 'Generating your final document...', variant: 'success' });
+      setReviewJobId(null); setArchData(null);
+      setTimeout(fetchJobs, 3000);
+    } catch (err) {
+      toast({ title: 'Error', description: err instanceof Error ? err.message : 'Failed', variant: 'destructive' });
+    } finally { setArchLoading(false); }
+  };
+
+  const handleIterate = async () => {
+    if (!reviewJobId || !archFeedback.trim()) return;
+    setArchLoading(true);
+    try {
+      await api.post(`/generate/${reviewJobId}/iterate-architecture`, { feedback: archFeedback });
+      toast({ title: 'Feedback sent!', description: 'Revising architecture...', variant: 'success' });
+      setArchFeedback('');
+      // Re-fetch arch after delay
+      setTimeout(() => openArchReview(reviewJobId), 5000);
+    } catch (err) {
+      toast({ title: 'Error', description: err instanceof Error ? err.message : 'Failed', variant: 'destructive' });
+      setArchLoading(false);
+    }
+  };
+
+  const handleRetry = async (jobId: string, clientName: string) => {
+    try {
+      await api.post(`/generate/${jobId}/retry`);
+      toast({ title: 'Job re-queued!', description: `${clientName} will be regenerated. Check back in 1–2 minutes.`, variant: 'success' });
+      setTimeout(fetchJobs, 2000);
+    } catch (err) {
+      toast({ title: 'Retry failed', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
+    }
   };
 
   return (
@@ -80,7 +135,55 @@ export function HistoryPage() {
                   <Download className="h-4 w-4 mr-1.5" />Download
                 </Button>
               )}
+              {job.status === 'awaiting_review' && (
+                <Button size="sm" className="bg-primary text-primary-foreground"
+                  onClick={() => reviewJobId === job.job_id ? setReviewJobId(null) : openArchReview(job.job_id)}>
+                  <Eye className="h-4 w-4 mr-1.5" />
+                  {reviewJobId === job.job_id ? 'Close Review' : 'Review Architecture'}
+                </Button>
+              )}
+              {job.status === 'failed' && (
+                <Button size="sm" variant="outline" className="border-primary/40 text-primary hover:bg-primary/10"
+                  onClick={() => handleRetry(job.job_id, job.client_name)}>
+                  <RefreshCw className="h-4 w-4 mr-1.5" />Retry
+                </Button>
+              )}
             </CardContent>
+            {/* Architecture review panel — expands inline */}
+            {reviewJobId === job.job_id && (
+              <CardContent className="pt-0 border-t">
+                {archLoading ? (
+                  <div className="py-4 text-center text-sm text-muted-foreground">Loading architecture...</div>
+                ) : archData ? (
+                  <div className="space-y-3 py-2">
+                    <p className="text-sm font-medium">Architecture Review — Iteration {archData.arch_iteration || 1}</p>
+                    {archData.preview_url && (
+                      <div className="border rounded overflow-hidden bg-white">
+                        <img src={archData.preview_url} alt="Architecture Diagram" className="w-full h-auto max-h-80 object-contain" />
+                      </div>
+                    )}
+                    <Button className="w-full" onClick={handleApprove} disabled={archLoading}>
+                      <ThumbsUp className="mr-2 h-4 w-4" />Approve & Generate Document
+                    </Button>
+                    <div className="space-y-2">
+                      <p className="text-xs text-muted-foreground font-medium">Or request changes:</p>
+                      <textarea
+                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm min-h-[60px] resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        placeholder="e.g. Add WAF, use Lambda instead of ECS..."
+                        value={archFeedback}
+                        onChange={e => setArchFeedback(e.target.value)}
+                      />
+                      <Button variant="outline" className="w-full" onClick={handleIterate}
+                        disabled={archLoading || !archFeedback.trim()}>
+                        <RefreshCw className="mr-2 h-4 w-4" />Revise Architecture
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="py-4 text-center text-sm text-muted-foreground">No architecture data available.</div>
+                )}
+              </CardContent>
+            )}
           </Card>
         ))
       )}
