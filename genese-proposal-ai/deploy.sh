@@ -43,19 +43,62 @@ SEED_DOCS=true                          # Set to false to skip seeding sample do
 # ── Step 1: Prerequisites ──────────────────────────────────────────────────────
 step "1/13: Checking Prerequisites"
 
-command -v python3 >/dev/null 2>&1 || error "python3 not found. Install Python 3.12+"
-command -v node   >/dev/null 2>&1 || error "node not found. Install Node.js 18+"
-command -v aws    >/dev/null 2>&1 || error "aws CLI not found. Install AWS CLI v2"
-command -v docker >/dev/null 2>&1 || error "docker not found. Install Docker"
-command -v cdk    >/dev/null 2>&1 || { warn "cdk not found. Installing..."; pip install aws-cdk-lib constructs -q; }
+echo ""
+echo "Pre-flight checklist:"
 
+# Python
+if command -v python3 >/dev/null 2>&1; then
+  PY_VER=$(python3 --version 2>&1 | grep -oP '3\.\d+')
+  success "  python3 $PY_VER"
+else
+  error "python3 not found. Install Python 3.12+: sudo dnf install python3"
+fi
+
+# Node
+if command -v node >/dev/null 2>&1; then
+  NODE_VER=$(node --version)
+  success "  node $NODE_VER"
+else
+  error "node not found. Install Node.js 18+: sudo dnf install nodejs"
+fi
+
+# AWS CLI
+if command -v aws >/dev/null 2>&1; then
+  success "  aws CLI $(aws --version 2>&1 | head -1)"
+else
+  error "aws CLI not found. Install: https://docs.aws.amazon.com/cli/latest/userguide/install-cliv2.html"
+fi
+
+# Docker
+if docker info >/dev/null 2>&1; then
+  success "  docker running"
+else
+  error "Docker not running. Start Docker first: sudo systemctl start docker"
+fi
+
+# CDK
+if command -v cdk >/dev/null 2>&1; then
+  success "  cdk $(cdk --version 2>&1 | head -1)"
+else
+  warn "  cdk not found — installing..."
+  pip install aws-cdk-lib constructs -q && success "  cdk installed"
+fi
+
+# AWS credentials
 ACCOUNT=$(aws sts get-caller-identity --query Account --output text 2>/dev/null) || \
-  error "AWS credentials not configured. Run 'aws configure'"
-success "AWS Account: $ACCOUNT, Region: $REGION"
+  error "AWS credentials not configured. Run: aws configure"
+IDENTITY=$(aws sts get-caller-identity --query Arn --output text 2>/dev/null)
+success "  AWS Account: $ACCOUNT ($IDENTITY)"
 
-# Verify we're in the right directory
-[[ -f "infrastructure/app.py" ]] || error "Run this script from the genese-proposal-ai/ directory"
-success "Directory OK"
+# Correct directory
+[[ -f "infrastructure/app.py" ]] || \
+  error "Wrong directory. Run from genese-proposal-ai/: cd genese-proposal-ai && ./deploy.sh"
+[[ -d "services/api" ]] || error "Missing services/api directory"
+[[ -d "services/worker" ]] || error "Missing services/worker directory"
+[[ -d "frontend" ]] || error "Missing frontend directory"
+success "  Directory structure OK"
+
+echo ""
 
 # ── Step 2: Create ECR Repositories ────────────────────────────────────────────
 step "2/13: Creating ECR Repositories"
