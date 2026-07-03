@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { FileText, Download, ExternalLink, CheckCircle, Loader2, AlertCircle, Cpu, Coins, Zap, ThumbsUp, RefreshCw, MessageSquare } from 'lucide-react';
+import { FileText, Download, ExternalLink, CheckCircle, Loader2, AlertCircle, Cpu, Coins, Zap, ThumbsUp, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
+import { TemplateSelector } from '@/components/TemplateSelector';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -28,6 +29,19 @@ const ENGAGEMENT_TYPES = [
   { value: 'ai_ml_platform', label: 'AI/ML Platform' },
   { value: 'cloud_native_development', label: 'Cloud Native Development' },
   { value: 'finops_optimization', label: 'FinOps Optimization' },
+  { value: 'cloud_adoption', label: 'Cloud Adoption' },
+  { value: 'disaster_recovery', label: 'Disaster Recovery' },
+  { value: 'cloud_optimization', label: 'Cloud Optimization' },
+  { value: 'other', label: 'Other' },
+];
+
+const CONSTRAINT_CHIPS = [
+  { label: 'AWS Best Practices', text: 'Always follow AWS Well-Architected Framework best practices.' },
+  { label: 'Reference Official Docs', text: 'Reference official AWS documentation for all services mentioned.' },
+  { label: 'Serverless First', text: 'Prefer serverless architectures where possible.' },
+  { label: 'Cost Optimized', text: 'Optimize for cost efficiency and include pricing estimates.' },
+  { label: 'Security First', text: 'Prioritize security at every layer following AWS security best practices.' },
+  { label: 'Multi-AZ HA', text: 'Design for high availability with Multi-AZ deployments.' },
 ];
 
 // Step definitions with progress %
@@ -59,7 +73,10 @@ export function GeneratePage() {
   const [clientName, setClientName] = useState('');
   const [engagementType, setEngagementType] = useState('aws_migration');
   const [requirements, setRequirements] = useState('');
+  const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
   const [contextNotes, setContextNotes] = useState('');
+  const [generationConstraints, setGenerationConstraints] = useState('');
+  const [constraintsOpen, setConstraintsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   // Architecture review state
   const [archPreviewUrl, setArchPreviewUrl] = useState<string | null>(null);
@@ -108,8 +125,22 @@ export function GeneratePage() {
       setArchLoading(false);
     }
   };
-  const handleGenerate = async (e: React.FormEvent) => {
 
+  const handleAddConstraintChip = (text: string) => {
+    setGenerationConstraints(prev => {
+      const trimmed = prev.trim();
+      if (!trimmed) return text;
+      // Avoid duplicating the exact same sentence
+      if (trimmed.includes(text)) return prev;
+      return trimmed.endsWith('.') || trimmed.endsWith('\n')
+        ? `${trimmed} ${text}`
+        : `${trimmed}. ${text}`;
+    });
+    // Auto-open section when a chip is clicked
+    setConstraintsOpen(true);
+  };
+
+  const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!clientName.trim() || !requirements.trim()) {
       toast({ title: 'Missing fields', description: 'Please fill in client name and requirements.', variant: 'destructive' });
@@ -122,6 +153,8 @@ export function GeneratePage() {
         document_type: docType, client_name: clientName,
         engagement_type: engagementType, key_requirements: requirements,
         context_notes: contextNotes || undefined,
+        generation_constraints: generationConstraints.trim() || undefined,
+        template_name: selectedTemplate || undefined,
       });
       toast({ title: 'Generation started!', description: 'Your document is being drafted. Sit tight.', variant: 'success' });
       startPolling(result.job_id);
@@ -161,7 +194,9 @@ export function GeneratePage() {
                 <Label>Document Type</Label>
                 <Select value={docType} onValueChange={setDocType}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>{DOC_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}</SelectContent>
+                  <SelectContent className="bg-background border shadow-lg z-50">
+                    {DOC_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+                  </SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">
@@ -172,7 +207,9 @@ export function GeneratePage() {
                 <Label>Engagement Type</Label>
                 <Select value={engagementType} onValueChange={setEngagementType}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>{ENGAGEMENT_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}</SelectContent>
+                  <SelectContent className="bg-background border shadow-lg z-50">
+                    {ENGAGEMENT_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+                  </SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">
@@ -183,10 +220,62 @@ export function GeneratePage() {
                 <Label htmlFor="ctx">Additional Context (optional)</Label>
                 <Textarea id="ctx" placeholder="Specific technologies, constraints, preferences..." className="min-h-[80px]" value={contextNotes} onChange={e => setContextNotes(e.target.value)} />
               </div>
+
+              {/* ── Generation Constraints (collapsible) ── */}
+              <div className="border rounded-lg overflow-hidden">
+                <button
+                  type="button"
+                  className="w-full flex items-center justify-between px-3 py-2.5 text-sm font-medium hover:bg-muted/50 transition-colors"
+                  onClick={() => setConstraintsOpen(o => !o)}
+                  aria-expanded={constraintsOpen}
+                >
+                  <span className="flex items-center gap-2">
+                    Generation Constraints
+                    <span className="text-xs font-normal text-muted-foreground">(optional)</span>
+                    {generationConstraints.trim() && (
+                      <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-primary text-primary-foreground text-[10px] font-bold">✓</span>
+                    )}
+                  </span>
+                  {constraintsOpen
+                    ? <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                    : <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                  }
+                </button>
+
+                {constraintsOpen && (
+                  <div className="px-3 pb-3 pt-1 space-y-3 border-t bg-muted/20">
+                    {/* Quick-add chips */}
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {CONSTRAINT_CHIPS.map(chip => (
+                        <button
+                          key={chip.label}
+                          type="button"
+                          onClick={() => handleAddConstraintChip(chip.text)}
+                          className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border border-primary/30 bg-primary/5 text-primary hover:bg-primary/15 hover:border-primary/50 transition-colors"
+                        >
+                          + {chip.label}
+                        </button>
+                      ))}
+                    </div>
+                    <Textarea
+                      id="constraints"
+                      placeholder="e.g. Always follow AWS Well-Architected Framework. Reference official AWS documentation. Prefer serverless where possible. Use Nepal rupee for pricing estimates."
+                      className="min-h-[90px] text-sm"
+                      value={generationConstraints}
+                      onChange={e => setGenerationConstraints(e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      These instructions will steer the AI's generation style, preferred services, and output format.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <TemplateSelector docType={docType} onChange={setSelectedTemplate} />
+
               <Button type="submit" className="w-full" disabled={loading || !!isBusy}>
                 {loading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Starting...</> : <><FileText className="mr-2 h-4 w-4" />Generate Document</>}
-              </Button>
-            </form>
+              </Button>            </form>
           </CardContent>
         </Card>
 

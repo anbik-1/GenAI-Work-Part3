@@ -1,4 +1,4 @@
-"""Auth router — signup, login, password reset via Amazon Cognito."""
+"""Auth router — signup, login, token refresh, and password reset via Amazon Cognito."""
 import boto3
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
@@ -16,6 +16,10 @@ class SignupRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: str
     password: str
+
+
+class RefreshRequest(BaseModel):
+    refreshToken: str
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -84,6 +88,37 @@ async def login(req: LoginRequest):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     except cognito.exceptions.UserNotFoundException:
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/refresh")
+async def refresh_token(req: RefreshRequest):
+    """Exchange a Cognito refresh token for a new idToken and accessToken.
+
+    Returns 401 when the refresh token has expired or been revoked so the
+    frontend knows to redirect the user to the login page.
+    """
+    settings = get_settings()
+    cognito = get_cognito()
+    try:
+        result = cognito.initiate_auth(
+            ClientId=settings.cognito_client_id,
+            AuthFlow="REFRESH_TOKEN_AUTH",
+            AuthParameters={
+                "REFRESH_TOKEN": req.refreshToken,
+            },
+        )
+        auth = result["AuthenticationResult"]
+        return {
+            "idToken": auth["IdToken"],
+            "accessToken": auth["AccessToken"],
+        }
+    except cognito.exceptions.NotAuthorizedException:
+        # Refresh token has expired or been revoked
+        raise HTTPException(status_code=401, detail="Refresh token expired. Please log in again.")
+    except cognito.exceptions.UserNotFoundException:
+        raise HTTPException(status_code=401, detail="User not found. Please log in again.")
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { api } from '@/lib/api';
+import { api, setLogoutCallback } from '@/lib/api';
 
 interface User { email: string; sub: string; }
 interface AuthCtx {
@@ -11,35 +11,59 @@ interface AuthCtx {
 }
 const AuthContext = createContext<AuthCtx | undefined>(undefined);
 
-const TOKEN_KEY = 'genese-id-token';
-const USER_KEY = 'genese-user';
+const TOKEN_KEY   = 'genese-id-token';
+const REFRESH_KEY = 'genese-refresh-token';
+const USER_KEY    = 'genese-user';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Restore session from localStorage on mount
   useEffect(() => {
     const stored = localStorage.getItem(USER_KEY);
-    const token = localStorage.getItem(TOKEN_KEY);
+    const token  = localStorage.getItem(TOKEN_KEY);
     if (stored && token) {
-      try { setUser(JSON.parse(stored)); } catch { localStorage.removeItem(USER_KEY); }
+      try {
+        setUser(JSON.parse(stored));
+      } catch {
+        localStorage.removeItem(USER_KEY);
+      }
     }
     setLoading(false);
   }, []);
 
+  const logout = useCallback(() => {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(REFRESH_KEY);
+    localStorage.removeItem(USER_KEY);
+    setUser(null);
+    // Redirect to login page after clearing state
+    window.location.href = '/login';
+  }, []);
+
+  // Register the logout function with the api client so it can trigger
+  // a forced logout when the refresh token is also expired.
+  useEffect(() => {
+    setLogoutCallback(logout);
+  }, [logout]);
+
   const login = useCallback(async (email: string, password: string) => {
-    // Call our FastAPI backend which uses Cognito AdminInitiateAuth server-side
-    const data = await api.post<{ idToken: string; accessToken: string }>('/auth/login', { email, password });
+    const data = await api.post<{
+      idToken: string;
+      accessToken: string;
+      refreshToken?: string;
+    }>('/auth/login', { email, password });
+
     localStorage.setItem(TOKEN_KEY, data.idToken);
+
+    if (data.refreshToken) {
+      localStorage.setItem(REFRESH_KEY, data.refreshToken);
+    }
+
     const userData: User = { email, sub: email };
     localStorage.setItem(USER_KEY, JSON.stringify(userData));
     setUser(userData);
-  }, []);
-
-  const logout = useCallback(() => {
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(USER_KEY);
-    setUser(null);
   }, []);
 
   return (
