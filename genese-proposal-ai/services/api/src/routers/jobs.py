@@ -33,14 +33,15 @@ async def list_jobs(
     jobs = result.scalars().all()
 
     return [
-        GenerationJobListItem(
-            job_id=j.id,
-            document_type=j.document_type,
-            client_name=j.client_name,
-            engagement_type=j.engagement_type,
-            status=j.status,
-            created_at=j.created_at,
-            completed_at=j.completed_at,
-        )
+        {
+            "job_id": str(j.id),
+            "document_type": j.document_type,
+            "client_name": j.client_name,
+            "engagement_type": j.engagement_type,
+            "status": j.status,
+            "error_message": j.error_message,
+            "created_at": j.created_at.isoformat() if j.created_at else None,
+            "completed_at": j.completed_at.isoformat() if j.completed_at else None,
+        }
         for j in jobs
     ]

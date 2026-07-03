@@ -1,16 +1,19 @@
-"""Build a Genese-branded .docx from generated content sections."""
+"""Build a Genese-branded .docx from generated content sections.
+If a custom template exists in S3 for the document type, use it as the base.
+Otherwise fall back to the programmatic Genese template."""
 import io
 import os
+import boto3
 from datetime import datetime
 from docx import Document
 from docx.shared import Pt, RGBColor, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from shared import PROPOSAL_SECTIONS, SOW_SECTIONS, CASE_STUDY_SECTIONS
 
-# Genese brand colors
-GENESE_BLUE = RGBColor(0x00, 0x4E, 0x96)    # #004E96
-GENESE_ORANGE = RGBColor(0xF5, 0x7C, 0x00)  # #F57C00
-GENESE_DARK = RGBColor(0x1A, 0x1A, 0x2E)    # #1A1A2E
+# Genese brand colors (used in fallback template)
+GENESE_BLUE = RGBColor(0x00, 0x4E, 0x96)
+GENESE_ORANGE = RGBColor(0xF5, 0x7C, 0x00)
+GENESE_DARK = RGBColor(0x1A, 0x1A, 0x2E)
 SECTION_TITLE_MAP = {
     "executive_summary": "Executive Summary",
     "problem_statement": "Problem Statement",
@@ -37,6 +40,96 @@ SECTION_TITLE_MAP = {
 }
 
 
+def _get_template_from_s3(document_type: str) -> bytes | None:
+    """Try to download a custom template from S3. Returns None if not found."""
+    from ..core.config import get_settings
+    settings = get_settings()
+    s3_key = f"templates/{document_type}/template.docx"
+    try:
+        s3 = boto3.client("s3", region_name=settings.aws_region)
+        response = s3.get_object(Bucket=settings.documents_bucket, Key=s3_key)
+        print(f"[docx_builder] Using custom template: {s3_key}")
+        return response["Body"].read()
+    except Exception:
+        return None
+
+
+def _fill_custom_template(template_bytes: bytes, sections_content: dict,
+                           client_name: str, engagement_type: str,
+                           sources: list | None) -> bytes:
+    """
+    Use ONLY the styles, fonts, colors and page layout from the uploaded template.
+    All existing body content is cleared — Claude's generated sections replace it.
+    """
+    doc = Document(io.BytesIO(template_bytes))
+
+    # ── Step 1: Clear all body paragraphs (keep styles/theme) ────────────────
+    # Remove body paragraphs but preserve document styles, page setup, and headers/footers
+    body = doc.element.body
+    # Remove all paragraphs and tables from body (keep sectPr — page settings)
+    import lxml.etree as etree
+    children_to_remove = []
+    for child in body:
+        tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
+        if tag in ('p', 'tbl', 'sdt'):  # paragraphs, tables, structured docs
+            children_to_remove.append(child)
+    for child in children_to_remove:
+        body.remove(child)
+
+    # ── Step 2: Add document title block ─────────────────────────────────────
+    doc_type_label = "PROPOSAL"
+    # Try to detect doc type from sections
+    if any(k in sections_content for k in ('scope_of_work', 'deliverables')):
+        doc_type_label = "STATEMENT OF WORK"
+    elif any(k in sections_content for k in ('challenge', 'results')):
+        doc_type_label = "CASE STUDY"
+
+    # Type label
+    type_para = doc.add_paragraph()
+    type_run = type_para.add_run(doc_type_label)
+    type_run.bold = True
+    type_run.font.size = Pt(11)
+    type_run.font.color.rgb = GENESE_ORANGE
+    type_para.paragraph_format.space_before = Pt(12)
+
+    # Client name as heading
+    title_para = doc.add_paragraph()
+    title_run = title_para.add_run(client_name)
+    title_run.bold = True
+    title_run.font.size = Pt(24)
+    title_run.font.color.rgb = GENESE_BLUE
+
+    # Engagement type
+    sub_para = doc.add_paragraph()
+    sub_run = sub_para.add_run(engagement_type.replace("_", " ").title())
+    sub_run.italic = True
+    sub_run.font.size = Pt(13)
+    sub_run.font.color.rgb = GENESE_DARK
+
+    # Date
+    date_para = doc.add_paragraph()
+    date_run = date_para.add_run(f"Prepared: {datetime.now().strftime('%B %Y')}")
+    date_run.font.size = Pt(10)
+    date_run.font.color.rgb = RGBColor(0x88, 0x88, 0x88)
+
+    doc.add_paragraph()  # spacer
+
+    # ── Step 3: Add Claude's generated sections ───────────────────────────────
+    for section_key, content in sections_content.items():
+        if section_key in ("parse_error", "content"):
+            _add_section(doc, "Generated Content", str(content))
+            continue
+        title = SECTION_TITLE_MAP.get(section_key, section_key.replace("_", " ").title())
+        _add_section(doc, title, str(content))
+
+    if sources:
+        _add_sources(doc, sources)
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
 def build_docx(
     sections_content: dict,
     document_type: str,
@@ -45,9 +138,25 @@ def build_docx(
     sources: list[dict] | None = None,
 ) -> bytes:
     """
-    Build a Genese-branded .docx document from generated sections.
-    Returns bytes that can be uploaded to S3.
+    Build a .docx from generated sections.
+    Uses uploaded S3 template if available, otherwise falls back to default Genese template.
     """
+    template_bytes = _get_template_from_s3(document_type)
+    if template_bytes:
+        return _fill_custom_template(template_bytes, sections_content,
+                                      client_name, engagement_type, sources)
+    # Fall back to default programmatic template
+    return _build_default_docx(sections_content, document_type, client_name, engagement_type, sources)
+
+
+def _build_default_docx(
+    sections_content: dict,
+    document_type: str,
+    client_name: str,
+    engagement_type: str,
+    sources: list[dict] | None = None,
+) -> bytes:
+    """Programmatic Genese-branded .docx (used when no custom template uploaded)."""
     doc = Document()
 
     # Page margins

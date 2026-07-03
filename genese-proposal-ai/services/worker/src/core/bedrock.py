@@ -13,13 +13,22 @@ def get_bedrock_client():
 
 def get_llm() -> ChatBedrock:
     """Return a LangChain ChatBedrock instance for Claude Sonnet 4.6."""
+    import boto3
+    from botocore.config import Config
     settings = get_settings()
+    # Increase read timeout to 120s — large proposals can take 60-90s
+    bedrock_client = boto3.client(
+        "bedrock-runtime",
+        region_name=settings.aws_region,
+        config=Config(read_timeout=120, connect_timeout=10, retries={"max_attempts": 2})
+    )
     return ChatBedrock(
         model_id=BEDROCK_LLM_MODEL_ID,
         region_name=settings.aws_region,
+        client=bedrock_client,
         model_kwargs={
             "max_tokens": 4096,
-            "temperature": 0.3,    # lower temp = more consistent, factual proposals
+            "temperature": 0.3,
         },
     )
 

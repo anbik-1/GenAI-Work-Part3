@@ -2,7 +2,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .core.config import get_settings
-from .routers import health, documents, generate, search, jobs, auth
+from .routers import health, documents, generate, search, jobs, auth, templates
 
 settings = get_settings()
 
@@ -29,3 +29,4 @@ app.include_router(documents.router, prefix="/documents", tags=["Documents"])
 app.include_router(generate.router, prefix="/generate", tags=["Generate"])
 app.include_router(search.router, prefix="/search", tags=["Search"])
 app.include_router(jobs.router, prefix="/jobs", tags=["Jobs"])
+app.include_router(templates.router, prefix="/templates", tags=["Templates"])

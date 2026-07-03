@@ -8,6 +8,7 @@ import { GeneratePage } from '@/pages/GeneratePage';
 import { SearchPage } from '@/pages/SearchPage';
 import { DocumentsPage } from '@/pages/DocumentsPage';
 import { HistoryPage } from '@/pages/HistoryPage';
+import { TemplatesPage } from '@/pages/TemplatesPage';
 import { LoginPage } from '@/pages/LoginPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -31,6 +32,7 @@ export default function App() {
                 <Route path="/search" element={<SearchPage />} />
                 <Route path="/documents" element={<DocumentsPage />} />
                 <Route path="/history" element={<HistoryPage />} />
+                <Route path="/templates" element={<TemplatesPage />} />
               </Route>
             </Routes>
             <Toaster />

@@ -92,16 +92,20 @@ export function DocumentsPage() {
     }
   };
 
-  // Poll status for pending/processing docs
+  // Poll status for pending/processing docs AND fetch token data for complete docs missing it
   const pollPendingStatuses = async (currentDocs: Doc[]) => {
-    const pending = currentDocs.filter(
-      d => !d.ingestion_status || d.ingestion_status === 'pending' || d.ingestion_status === 'processing'
-    );
-    if (pending.length === 0) return false; // nothing to poll
+    // Fetch status for: pending/processing docs (for live progress) AND
+    // complete docs that have 0 tokens (to show cost data)
+    const needsStatus = currentDocs.filter(d => {
+      const status = d.ingestion_status;
+      const missingTokens = !d.embedding_tokens || d.embedding_tokens === 0;
+      return !status || status === 'pending' || ['loading','chunking','embedding','storing'].includes(status) || (status === 'complete' && missingTokens);
+    });
+    if (needsStatus.length === 0) return false;
 
     const updates: Record<string, DocStatus> = {};
     await Promise.all(
-      pending.map(async (doc) => {
+      needsStatus.map(async (doc) => {
         try {
           const status = await api.get<DocStatus>(`/documents/${doc.id}/status`);
           updates[doc.id] = status;
@@ -114,7 +118,7 @@ export function DocumentsPage() {
     const anyComplete = Object.values(updates).some(s => s.ingestion_status === 'complete');
     if (anyComplete) fetchDocs();
 
-    return pending.length > 0;
+    return needsStatus.length > 0;
   };
 
   useEffect(() => {
@@ -124,8 +128,16 @@ export function DocumentsPage() {
   // Start polling when docs change
   useEffect(() => {
     if (pollingRef.current) clearInterval(pollingRef.current);
+    // Initial fetch of all statuses (including complete ones missing tokens)
     pollPendingStatuses(docs);
-    pollingRef.current = setInterval(() => pollPendingStatuses(docs), 4000);
+    // Keep polling only if there are active docs
+    const hasActive = docs.some(d => {
+      const s = d.ingestion_status;
+      return !s || s === 'pending' || ['loading','chunking','embedding','storing'].includes(s);
+    });
+    if (hasActive) {
+      pollingRef.current = setInterval(() => pollPendingStatuses(docs), 4000);
+    }
     return () => { if (pollingRef.current) clearInterval(pollingRef.current); };
   }, [docs.length]);
 

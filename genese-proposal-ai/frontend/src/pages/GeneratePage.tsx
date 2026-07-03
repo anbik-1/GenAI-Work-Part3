@@ -159,10 +159,31 @@ export function GeneratePage() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {activeJob.status === 'failed' ? (
-                    <Alert variant="destructive">
-                      <AlertCircle className="h-4 w-4" />
-                      <AlertDescription>{activeJob.error_message || 'Generation failed. Please try again.'}</AlertDescription>
-                    </Alert>
+                    <div className="space-y-3">
+                      <Alert variant="destructive">
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertDescription>
+                          <p className="font-medium mb-1">Generation failed</p>
+                          {/* Show friendly error reason */}
+                          <p className="text-sm">
+                            {activeJob.error_message === 'Cancelled by user'
+                              ? 'You cancelled this generation.'
+                              : activeJob.error_message?.includes('timeout') || activeJob.error_message?.includes('Timeout')
+                              ? 'The AI model took too long to respond. This happens with very long documents. Please try again.'
+                              : activeJob.error_message?.includes('ValidationException')
+                              ? 'The request was invalid — try simplifying your requirements.'
+                              : activeJob.error_message?.includes('ThrottlingException')
+                              ? 'Too many requests at once. Please wait a moment and try again.'
+                              : activeJob.error_message
+                              ? `Error: ${activeJob.error_message.slice(0, 150)}`
+                              : 'An unexpected error occurred. Please try again.'}
+                          </p>
+                        </AlertDescription>
+                      </Alert>
+                      <Button className="w-full" variant="outline" onClick={() => { clearJob(); }}>
+                        ↩ Try Again
+                      </Button>
+                    </div>
                   ) : (
                     <>
                       {/* Step-by-step progress */}
@@ -189,8 +210,26 @@ export function GeneratePage() {
                       {/* Progress bar */}
                       <div className="space-y-1">
                         <Progress value={currentStep.pct} className="h-2" />
-                        <p className="text-xs text-right text-muted-foreground">{currentStep.pct}%</p>
+                        <div className="flex items-center justify-between text-xs text-muted-foreground">
+                          <span>{currentStep.pct}%</span>
+                          {currentStep.pct < 100 && <span>~1–2 min remaining</span>}
+                        </div>
                       </div>
+
+                      {/* Cancel button — only for queued jobs */}
+                      {activeJob.status === 'queued' && (
+                        <Button
+                          variant="outline" size="sm" className="w-full text-destructive border-destructive/30 hover:bg-destructive/10"
+                          onClick={async () => {
+                            try {
+                              await api.delete(`/generate/${activeJob.job_id}/cancel`);
+                              clearJob();
+                            } catch { /* ignore — job may have started */ }
+                          }}
+                        >
+                          ✕ Cancel
+                        </Button>
+                      )}
 
                       {/* Complete */}
                       {activeJob.status === 'complete' && (

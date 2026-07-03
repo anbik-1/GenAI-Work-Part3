@@ -6,7 +6,7 @@ import { Badge, Skeleton } from '@/components/ui/misc';
 import { api } from '@/lib/api';
 import { useToast } from '@/components/ui/use-toast';
 
-interface Job { job_id: string; document_type: string; client_name: string; engagement_type: string; status: string; created_at: string; completed_at?: string; }
+interface Job { job_id: string; document_type: string; client_name: string; engagement_type: string; status: string; created_at: string; completed_at?: string; error_message?: string; }
 
 const STATUS_COLORS: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
   complete: 'default', failed: 'destructive', queued: 'outline', processing: 'secondary',
@@ -50,15 +50,29 @@ export function HistoryPage() {
         </Card>
       ) : (
         jobs.map(job => (
-          <Card key={job.job_id} className="hover:shadow-md transition-shadow">
+          <Card key={job.job_id} className={`hover:shadow-md transition-shadow ${job.status === 'failed' ? 'border-destructive/30' : ''}`}>
             <CardContent className="flex items-center justify-between py-4 px-6">
-              <div className="space-y-1">
+              <div className="space-y-1 flex-1 min-w-0">
                 <p className="font-medium">{job.client_name}</p>
                 <div className="flex items-center space-x-2">
                   <Badge variant={STATUS_COLORS[job.status] || 'secondary'} className="text-xs">{job.status}</Badge>
                   <span className="text-xs text-muted-foreground">{job.document_type.replace('_', ' ')}</span>
                   <span className="text-xs text-muted-foreground">{job.engagement_type.replace(/_/g, ' ')}</span>
                 </div>
+                {/* Show failure reason for failed jobs */}
+                {job.status === 'failed' && (
+                  <p className="text-xs text-destructive mt-1">
+                    {job.error_message === 'Cancelled by user'
+                      ? '✕ Cancelled by user'
+                      : job.error_message?.includes('timeout') || job.error_message?.includes('Timeout')
+                      ? '⏱ Timed out — AI took too long. Try again.'
+                      : job.error_message?.includes('ThrottlingException')
+                      ? '⚠ Rate limited — try again in a moment'
+                      : job.error_message
+                      ? `⚠ ${job.error_message.slice(0, 100)}`
+                      : '⚠ Failed — unknown error'}
+                  </p>
+                )}
                 <p className="text-xs text-muted-foreground">{new Date(job.created_at).toLocaleString()}</p>
               </div>
               {job.status === 'complete' && (
