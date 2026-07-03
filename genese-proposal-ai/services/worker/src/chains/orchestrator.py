@@ -55,36 +55,114 @@ def _save_sections(db: Session, job_id: str, sections: dict) -> None:
     db.commit()
 
 
-def run_sme_review(db: Session, job: GenerationJob, sections: dict) -> dict:
+def run_sme_review(db: Session, job: GenerationJob, sections: dict) -> None:
     """
-    SME (Subject Matter Expert) review step.
-    Claude acts as a domain expert for the engagement type, reviews the drafted sections,
-    searches the web for the latest best practices, and returns improved sections.
-    This step runs AFTER drafting and BEFORE formatting, only when sme_review_enabled=True.
+    SME (Subject Matter Expert) review step — interactive mode.
+
+    Calls run_sme_review_chain() which now returns a structured REPORT
+    (findings, discrepancies, proposed_improvements, score).
+
+    Saves the report to the sme_report JSONB column and sets the job
+    status to 'sme_reviewing' so the pipeline PAUSES here.
+
+    The user must then call POST /generate/{job_id}/sme-apply (apply=True/False)
+    to either apply improvements or skip, both of which enqueue a 'sme_apply'
+    SQS message to continue the pipeline into formatting.
     """
     from ..chains.sme_chain import run_sme_review_chain
     _update_job_status(db, job, "sme_reviewing",
                        f"SME reviewing document for {job.engagement_type.replace('_', ' ').title()} domain...")
     try:
-        improved = run_sme_review_chain(
+        report = run_sme_review_chain(
             document_type=job.document_type,
             client_name=job.client_name,
             engagement_type=job.engagement_type,
             key_requirements=job.key_requirements,
             sections=sections,
         )
-        logger.info(f"[orchestrator] SME review complete for job {job.id}")
-        return improved
+
+        # Persist the report to sme_report JSONB column
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        db.execute(
+            sql_text(
+                "UPDATE generation_jobs SET sme_report = CAST(:r AS jsonb) WHERE id = CAST(:id AS uuid)"
+            ),
+            {"r": json.dumps(report), "id": str(job.id)},
+        )
+        db.commit()
+
+        # Leave status as 'sme_reviewing' — the pipeline intentionally pauses here.
+        # apply_sme_changes() (triggered by the /sme-apply endpoint) will continue to formatting.
+        logger.info(
+            f"[orchestrator] SME report saved for job {job.id} — "
+            f"score={report.get('overall_score')}, "
+            f"findings={len(report.get('findings', []))}"
+        )
+
     except Exception as e:
-        logger.warning(f"[orchestrator] SME review failed (non-fatal): {e}")
-        return sections  # Fall back to original sections
+        logger.warning(f"[orchestrator] SME review failed (non-fatal): {e} — skipping to formatting")
+        # If SME review itself fails, proceed directly to formatting without improvements
+        _enqueue_format(str(job.id))
+
+
+def apply_sme_changes(db: Session, job: GenerationJob, apply: bool) -> None:
+    """
+    Called when the user responds to the SME review panel.
+
+    If apply=True:  merge proposed_improvements into sections_content and save.
+    If apply=False: leave sections_content unchanged (skip improvements).
+    Either way, enqueue a 'format' SQS message to continue the pipeline.
+    """
+    from ..chains.sme_chain import apply_sme_improvements
+
+    if apply:
+        # Load current sections
+        row = db.execute(
+            sql_text(
+                "SELECT sections_content, sme_report FROM generation_jobs WHERE id = CAST(:id AS uuid)"
+            ),
+            {"id": str(job.id)},
+        ).mappings().one_or_none()
+
+        if row and row["sections_content"] and row["sme_report"]:
+            improved_sections = apply_sme_improvements(
+                sections=row["sections_content"],
+                report=row["sme_report"],
+            )
+            _save_sections(db, str(job.id), improved_sections)
+            logger.info(f"[orchestrator] SME improvements applied for job {job.id}")
+        else:
+            logger.warning(
+                f"[orchestrator] apply_sme_changes: missing sections or report for job {job.id} — continuing without apply"
+            )
+
+    # Enqueue the format job so the pipeline continues
+    _enqueue_format(str(job.id))
+    _update_job_status(db, job, "queued", "SME review complete — formatting document...")
+    logger.info(f"[orchestrator] SME apply done (apply={apply}) for job {job.id} — format job enqueued")
+
+
+def _enqueue_format(job_id: str) -> None:
+    """Publish a 'format' SQS message to continue the pipeline after SME review."""
+    settings = get_settings()
+    sqs = boto3.client("sqs", region_name=settings.aws_region)
+    sqs.send_message(
+        QueueUrl=settings.generation_queue_url,
+        MessageBody=json.dumps({"job_type": "format", "job_id": job_id, "sme_review_enabled": False}),
+    )
 
 
 def run_formatting_pipeline(db: Session, job: GenerationJob, sme_review_enabled: bool = False) -> None:
     """
-    Called AFTER user approves the architecture diagram.
+    Called AFTER user approves the architecture diagram (or after SME apply step).
     Reuses the sections_content stored during the initial draft — does NOT re-draft.
-    Optionally runs SME review before building the .docx.
+
+    When sme_review_enabled=True the pipeline now PAUSES at 'sme_reviewing' status:
+    run_sme_review() saves the report and the job waits for the user to call
+    POST /generate/{job_id}/sme-apply before formatting continues.
     """
     settings = get_settings()
     s3 = boto3.client("s3", region_name=settings.aws_region)
@@ -122,10 +200,12 @@ def run_formatting_pipeline(db: Session, job: GenerationJob, sme_review_enabled:
         else:
             logger.info(f"[orchestrator] Reusing stored sections for job {job.id} — no re-draft needed")
 
-        # Optional SME review
+        # SME review — now interactive: generates report, saves it, and PAUSES.
+        # The pipeline returns here; apply_sme_changes() (via /sme-apply endpoint)
+        # will re-enqueue a 'format' job (with sme_review_enabled=False) to continue.
         if sme_review_enabled:
-            sections_content = run_sme_review(db, job, sections_content)
-            _save_sections(db, str(job.id), sections_content)
+            run_sme_review(db, job, sections_content)
+            return  # Pipeline intentionally pauses here waiting for user decision
 
         # Download architecture PNG
         arch_png_bytes = None
@@ -144,6 +224,7 @@ def run_formatting_pipeline(db: Session, job: GenerationJob, sme_review_enabled:
             engagement_type=job.engagement_type,
             sources=job.tavily_sources or [],
             arch_png_bytes=arch_png_bytes,
+            template_name=getattr(job, "template_name", None),
         )
 
         output_key = f"generated/{job.id}/{job.client_name.replace(' ', '_')}_{job.document_type}.docx"
@@ -277,7 +358,7 @@ def run_arch_iteration(db: Session, job: GenerationJob, feedback: str) -> None:
         raise
 
 
-def run_generation_pipeline(db: Session, job: GenerationJob, sme_review_enabled: bool = False) -> None:
+def run_generation_pipeline(db: Session, job: GenerationJob, sme_review_enabled: bool = False, model_id: str | None = None) -> None:
     """
     Full proposal generation pipeline. Steps:
     1. RETRIEVING  — semantic search of knowledge base (past proposals)
@@ -287,6 +368,10 @@ def run_generation_pipeline(db: Session, job: GenerationJob, sme_review_enabled:
     5. [SME]       — Optional: domain expert review using web search (if enabled)
     6. AWAIT_REVIEW— PAUSES: user reviews and approves architecture
        → On approval: run_formatting_pipeline() builds .docx using stored sections
+
+    Args:
+        model_id: Optional Bedrock model ID override for this job. If None, the
+                  worker resolves via ``BEDROCK_LLM_MODEL_ID`` env var or default.
     """
     settings = get_settings()
     s3 = boto3.client("s3", region_name=settings.aws_region)
@@ -346,6 +431,7 @@ def run_generation_pipeline(db: Session, job: GenerationJob, sme_review_enabled:
             rag_context=rag_context_str,
             tavily_sources=tavily_context_str,
             context_notes=full_context or None,
+            model_id=model_id,
         )
         sections_content = result["sections"]
         token_usage = result["token_usage"]
@@ -414,10 +500,13 @@ def run_generation_pipeline(db: Session, job: GenerationJob, sme_review_enabled:
             logger.error(f"[orchestrator] Architecture generation failed: {arch_err}")
             # Non-fatal — continue to awaiting_review without diagram
 
-        # ── Step 5 (optional): SME review before user sees it ──────────────
+        # ── Step 5 (optional): SME review — NOW INTERACTIVE ────────────────
+        # run_sme_review() saves the report and sets status to 'sme_reviewing'.
+        # The pipeline pauses here; user responds via /sme-apply endpoint.
+        # apply_sme_changes() re-enqueues a 'format' message to continue.
         if sme_review_enabled:
-            updated_sections = run_sme_review(db, job, sections_content)
-            _save_sections(db, str(job.id), updated_sections)
+            run_sme_review(db, job, sections_content)
+            return  # Pipeline pauses — waiting for user's SME decision
 
         # ── Step 6: Pause — wait for user to approve architecture ───────────
         # run_formatting_pipeline() is called when user clicks Approve

@@ -95,10 +95,36 @@ async def upload_document(
 @router.get("", response_model=DocumentListResponse)
 async def list_documents(
     db: AsyncSession = Depends(get_db),
-    _: str = Depends(get_current_user_sub),
+    user_sub: str = Depends(get_current_user_sub),
 ):
-    """List all documents in the knowledge base."""
-    result = await db.execute(select(Document).order_by(Document.created_at.desc()))
+    """List documents in the knowledge base.
+
+    Admins see all documents; members see only documents they uploaded.
+    """
+    from sqlalchemy import text as sa_text
+
+    # Look up current user's id and role
+    user_row = (
+        await db.execute(
+            sa_text("SELECT id, role FROM users WHERE cognito_sub = :sub"),
+            {"sub": user_sub},
+        )
+    ).mappings().one_or_none()
+
+    if user_row and user_row["role"] == "admin":
+        # Admin sees everything
+        result = await db.execute(select(Document).order_by(Document.created_at.desc()))
+    elif user_row:
+        # Member sees only their own uploads
+        result = await db.execute(
+            select(Document)
+            .where(Document.uploaded_by == user_row["id"])
+            .order_by(Document.created_at.desc())
+        )
+    else:
+        # Unknown user — return empty
+        return DocumentListResponse(documents=[], total=0)
+
     documents = result.scalars().all()
     return DocumentListResponse(
         documents=[DocumentListItem.model_validate(d) for d in documents],
@@ -110,13 +136,29 @@ async def list_documents(
 async def delete_document(
     document_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: str = Depends(get_current_user_sub),
+    user_sub: str = Depends(get_current_user_sub),
 ):
-    """Delete a document and all its chunks from the knowledge base."""
+    """Delete a document and all its chunks from the knowledge base.
+
+    Admins can delete any document; members can only delete their own.
+    """
+    from sqlalchemy import text as sa_text
+
     result = await db.execute(select(Document).where(Document.id == document_id))
     document = result.scalar_one_or_none()
     if not document:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+
+    # Enforce ownership for non-admins
+    user_row = (
+        await db.execute(
+            sa_text("SELECT id, role FROM users WHERE cognito_sub = :sub"),
+            {"sub": user_sub},
+        )
+    ).mappings().one_or_none()
+
+    if not user_row or (user_row["role"] != "admin" and document.uploaded_by != user_row["id"]):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You don't have permission to delete this document")
 
     # Delete from S3 and DB (cascade deletes chunks)
     delete_s3_object(document.s3_key)

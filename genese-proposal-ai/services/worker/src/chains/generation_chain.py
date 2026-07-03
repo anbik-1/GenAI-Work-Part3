@@ -1,9 +1,15 @@
-"""LangChain generation chain — uses Claude Sonnet 4.6 to draft proposals/SoWs."""
+"""LangChain generation chain — uses Claude via Bedrock to draft proposals/SoWs.
+
+The model used is resolved in this priority order:
+  1. ``model_id`` argument passed to ``generate_document()`` (per-job override)
+  2. ``BEDROCK_LLM_MODEL_ID`` env var (ECS task definition / .env)
+  3. Hard-coded default: ``us.anthropic.claude-sonnet-4-6``
+"""
 import json
 from langchain.prompts import ChatPromptTemplate
-from langchain.schema.output_parser import StrOutputParser
 from ..core.bedrock import get_llm
-from shared import PROPOSAL_SECTIONS, SOW_SECTIONS, CASE_STUDY_SECTIONS, BEDROCK_LLM_MODEL_ID
+from ..core.config import get_settings
+from shared import PROPOSAL_SECTIONS, SOW_SECTIONS, CASE_STUDY_SECTIONS
 
 
 SECTION_MAP = {
@@ -55,11 +61,22 @@ def generate_document(
     rag_context: str,
     tavily_sources: str,
     context_notes: str | None = None,
+    model_id: str | None = None,
 ) -> dict:
     """
-    Generate a complete proposal/SoW/case study using Claude Sonnet 4.6.
-    Returns: {"sections": {...}, "token_usage": {"input": N, "output": N, "model": "..."}}
+    Generate a complete proposal/SoW/case study using Claude via Bedrock.
+
+    Args:
+        model_id: Optional Bedrock model ID override. If None, the model is
+                  resolved from the ``BEDROCK_LLM_MODEL_ID`` env var or the
+                  hard-coded default (``us.anthropic.claude-sonnet-4-6``).
+
+    Returns:
+        ``{"sections": {...}, "token_usage": {"input_tokens": N, "output_tokens": N, "model": "..."}}``
     """
+    settings = get_settings()
+    effective_model_id = model_id or settings.bedrock_llm_model_id
+
     sections = SECTION_MAP.get(document_type, PROPOSAL_SECTIONS)
     sections_str = ", ".join(sections)
     sections_json = json.dumps({s: "..." for s in sections})
@@ -78,7 +95,7 @@ def generate_document(
         ("human", PROPOSAL_PROMPT_TEMPLATE),
     ])
 
-    llm = get_llm()
+    llm = get_llm(model_id=model_id)
 
     # Use the LLM directly (not via StrOutputParser) to capture usage metadata
     formatted = prompt.format_messages(
@@ -97,7 +114,7 @@ def generate_document(
     raw_output = response.content
 
     # Extract token usage from response metadata
-    token_usage = {"input_tokens": 0, "output_tokens": 0, "model": BEDROCK_LLM_MODEL_ID}
+    token_usage = {"input_tokens": 0, "output_tokens": 0, "model": effective_model_id}
     usage = getattr(response, "usage_metadata", None) or getattr(response, "response_metadata", {})
     if isinstance(usage, dict):
         token_usage["input_tokens"] = (
@@ -126,45 +143,3 @@ def generate_document(
         sections_content = {"content": raw_output, "parse_error": True}
 
     return {"sections": sections_content, "token_usage": token_usage}
-
-    context_notes_section = (
-        f"ADDITIONAL CONTEXT:\n{context_notes}" if context_notes else ""
-    )
-    tavily_sources_section = (
-        f"VALIDATED FROM OFFICIAL DOCUMENTATION:\n{tavily_sources}"
-        if tavily_sources
-        else ""
-    )
-
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", SYSTEM_PROMPT),
-        ("human", PROPOSAL_PROMPT_TEMPLATE),
-    ])
-
-    llm = get_llm()
-    chain = prompt | llm | StrOutputParser()
-
-    raw_output = chain.invoke({
-        "document_type": document_type.replace("_", " ").title(),
-        "client_name": client_name,
-        "engagement_type": engagement_type.replace("_", " ").title(),
-        "key_requirements": key_requirements,
-        "rag_context": rag_context,
-        "tavily_sources_section": tavily_sources_section,
-        "context_notes_section": context_notes_section,
-        "sections": sections_str,
-        "sections_json": sections_json,
-    })
-
-    # Parse the JSON response
-    try:
-        # Strip markdown code fences if present
-        cleaned = raw_output.strip()
-        if cleaned.startswith("```"):
-            cleaned = cleaned.split("```")[1]
-            if cleaned.startswith("json"):
-                cleaned = cleaned[4:]
-        return json.loads(cleaned.strip())
-    except json.JSONDecodeError:
-        # If JSON parsing fails, return the raw text under a fallback key
-        return {"content": raw_output, "parse_error": True}

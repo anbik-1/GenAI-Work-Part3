@@ -17,6 +17,60 @@ from ..core.sqs import publish_job
 router = APIRouter()
 
 
+@router.get("/models")
+async def list_available_models(_: str = Depends(get_current_user_sub)):
+    """Returns the currently configured LLM model and available options.
+
+    The ``current_model`` reflects the value of the ``BEDROCK_LLM_MODEL_ID``
+    env var (set in ECS task definition), falling back to the hard-coded default.
+    Changing the model requires only an env var update + ECS service redeploy —
+    no code change needed.
+    """
+    from ..core.config import get_settings
+    settings = get_settings()
+    return {
+        "current_model": settings.bedrock_llm_model_id,
+        "available_models": [
+            {
+                "id": "us.anthropic.claude-sonnet-4-6",
+                "name": "Claude Sonnet 4.6",
+                "provider": "Bedrock",
+                "recommended": True,
+                "cost_per_1k_input_usd": 0.003,
+                "cost_per_1k_output_usd": 0.015,
+                "note": "Best quality — recommended for proposals",
+            },
+            {
+                "id": "us.anthropic.claude-sonnet-4-5",
+                "name": "Claude Sonnet 4.5",
+                "provider": "Bedrock",
+                "cost_per_1k_input_usd": 0.003,
+                "cost_per_1k_output_usd": 0.015,
+            },
+            {
+                "id": "us.anthropic.claude-haiku-3-5",
+                "name": "Claude Haiku 3.5",
+                "provider": "Bedrock",
+                "cost_per_1k_input_usd": 0.0008,
+                "cost_per_1k_output_usd": 0.004,
+                "note": "Faster and cheaper — lower quality",
+            },
+            {
+                "id": "amazon.nova-pro-v1:0",
+                "name": "Amazon Nova Pro",
+                "provider": "Bedrock",
+                "cost_per_1k_input_usd": 0.0008,
+                "cost_per_1k_output_usd": 0.0032,
+                "note": "AWS native model",
+            },
+        ],
+        "how_to_change": (
+            "Set BEDROCK_LLM_MODEL_ID env var in the ECS task definition and redeploy. "
+            "Or pass model_id in the POST /generate request body to override per-job."
+        ),
+    }
+
+
 @router.post("", status_code=status.HTTP_202_ACCEPTED)
 async def submit_generation_job(
     request: GenerationRequest,
@@ -43,6 +97,7 @@ async def submit_generation_job(
         key_requirements=request.key_requirements,
         context_notes=request.context_notes,
         status=JOB_STATUS["QUEUED"],
+        template_name=request.template_name,
     )
     db.add(job)
     await db.flush()
@@ -57,6 +112,7 @@ async def submit_generation_job(
         context_notes=request.context_notes,
         user_id=str(user.id),
         template_name=request.template_name,
+        model_id=request.model_id or None,
     )
     publish_job(msg.model_dump())
 
@@ -164,7 +220,6 @@ async def extract_requirements(
     """Use Claude to extract structured requirements from pasted text."""
     import boto3, json
     from ..core.config import get_settings
-    from shared import BEDROCK_LLM_MODEL_ID
     settings = get_settings()
     input_text = body.get("text", "")[:3000]
     if not input_text.strip():
@@ -178,7 +233,7 @@ Text to analyze:
 {input_text}"""
 
     resp = bedrock.invoke_model(
-        modelId=BEDROCK_LLM_MODEL_ID,
+        modelId=settings.bedrock_llm_model_id,
         body=json.dumps({
             "anthropic_version": "bedrock-2023-05-31",
             "max_tokens": 1024,
@@ -220,6 +275,98 @@ async def set_job_outcome(
     )
 
     return {"job_id": str(job_id), "outcome": outcome}
+
+
+@router.get("/{job_id}/sme-report")
+async def get_sme_report(
+    job_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(get_current_user_sub),
+):
+    """Return the full SME review report for a job in sme_reviewing status."""
+    from sqlalchemy import text as sql_text
+    row = (await db.execute(
+        sql_text("""SELECT id, status, sme_report
+                    FROM generation_jobs WHERE id = :id"""),
+        {"id": str(job_id)}
+    )).mappings().one_or_none()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if not row["sme_report"]:
+        raise HTTPException(
+            status_code=404,
+            detail="No SME report available for this job"
+        )
+
+    return {
+        "job_id": str(row["id"]),
+        "status": row["status"],
+        "report": row["sme_report"],
+    }
+
+
+@router.post("/{job_id}/sme-apply")
+async def apply_sme_review(
+    job_id: uuid.UUID,
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(get_current_user_sub),
+):
+    """
+    Respond to the SME review panel.
+
+    Body: { "apply": true|false }
+    - true  → apply the proposed improvements before formatting
+    - false → skip improvements and format as-is
+
+    Publishes a 'sme_apply' SQS message so the worker continues the pipeline.
+    """
+    from sqlalchemy import text as sql_text
+    from ..core.sqs import publish_job
+
+    apply = bool(body.get("apply", False))
+
+    row = (await db.execute(
+        sql_text("SELECT id, status FROM generation_jobs WHERE id = :id"),
+        {"id": str(job_id)}
+    )).mappings().one_or_none()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if row["status"] != "sme_reviewing":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Job is not awaiting SME decision (current status: {row['status']})"
+        )
+
+    # Publish sme_apply message — worker will call apply_sme_changes()
+    publish_job({"job_type": "sme_apply", "job_id": str(job_id), "apply": apply})
+
+    # Optimistically update status so the frontend stops showing sme_reviewing
+    await db.execute(
+        sql_text(
+            "UPDATE generation_jobs SET status='queued', "
+            "status_detail=:detail WHERE id=CAST(:id AS uuid)"
+        ),
+        {
+            "detail": "SME improvements applied — formatting document..." if apply
+                      else "SME review skipped — formatting document...",
+            "id": str(job_id),
+        }
+    )
+
+    return {
+        "job_id": str(job_id),
+        "apply": apply,
+        "message": (
+            "SME improvements will be applied before formatting."
+            if apply else
+            "Proceeding to formatting without SME improvements."
+        ),
+    }
 
 
 @router.get("/{job_id}/architecture")
@@ -344,7 +491,8 @@ async def get_job_status(
         text("""SELECT id, status, status_detail, rag_context, tavily_sources,
                        output_s3_key, pdf_s3_key, error_message, llm_model,
                        input_tokens, output_tokens, created_at, completed_at,
-                       proposal_score, outcome, sections_content, drawio_s3_key
+                       proposal_score, outcome, sections_content, drawio_s3_key,
+                       sme_report
                 FROM generation_jobs WHERE id = :job_id"""),
         {"job_id": str(job_id)}
     )).mappings().one_or_none()
@@ -391,4 +539,5 @@ async def get_job_status(
         "outcome": row["outcome"] if "outcome" in row.keys() else None,
         "sections_content": row["sections_content"] if "sections_content" in row.keys() else None,
         "drawio_download_url": get_presigned_url(row["drawio_s3_key"], expiry_seconds=3600) if row.get("drawio_s3_key") else None,
+        "sme_report": row["sme_report"] if "sme_report" in row.keys() else None,
     }

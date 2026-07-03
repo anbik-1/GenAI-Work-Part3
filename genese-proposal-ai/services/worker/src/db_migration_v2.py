@@ -72,5 +72,15 @@ cur.execute("""
     ADD COLUMN IF NOT EXISTS drawio_s3_key VARCHAR(1000);
 """)
 print("Migration v2 complete")
+
+# v2.1 — role-based access control
+cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'member';")
+cur.execute("UPDATE users SET role = 'admin' WHERE email = 'demo@genesesolution.com';")
+print("users.role column added")
+
+# v2.2 — SME interactive review report
+cur.execute("ALTER TABLE generation_jobs ADD COLUMN IF NOT EXISTS sme_report JSONB;")
+print("sme_report column added")
+
 cur.close()
 conn.close()

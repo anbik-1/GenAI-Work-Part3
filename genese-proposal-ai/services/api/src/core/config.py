@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     # App
     app_env: str = Field(default="production", alias="APP_ENV")
 
+    # Bedrock model ID — override via env var in ECS task definition or .env
+    # to swap models without a code deployment
+    bedrock_llm_model_id: str = Field(default="us.anthropic.claude-sonnet-4-6", alias="BEDROCK_LLM_MODEL_ID")
+
     class Config:
         env_file = ".env"
         populate_by_name = True

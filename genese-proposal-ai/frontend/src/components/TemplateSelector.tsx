@@ -43,7 +43,7 @@ export function TemplateSelector({ docType, onChange }: Props) {
 
   // When docType changes, reset selection if it no longer matches
   useEffect(() => {
-    if (selected && selected !== 'default' && selected !== docType) {
+    if (selected && selected !== 'default' && selected !== 'plain_text' && selected !== docType) {
       setSelected(null);
       onChange(null);
     }
@@ -87,6 +87,8 @@ export function TemplateSelector({ docType, onChange }: Props) {
   const hasAny = relevantTemplates.length > 0;
   const selectionLabel = selected === null || selected === 'default'
     ? 'Default (built-in)'
+    : selected === 'plain_text'
+    ? 'Plain Text'
     : `Custom: ${selected}`;
 
   return (
@@ -112,7 +114,7 @@ export function TemplateSelector({ docType, onChange }: Props) {
       {!collapsed && (
         <div className="space-y-3 pl-5 border-l-2 border-muted ml-1.5">
           {/* Template cards */}
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             {/* Default option */}
             <button
               type="button"
@@ -130,6 +132,25 @@ export function TemplateSelector({ docType, onChange }: Props) {
               </div>
               <span className="font-medium">Default</span>
               <span className="text-xs text-muted-foreground">Built-in Genese template</span>
+            </button>
+
+            {/* Plain Text option */}
+            <button
+              type="button"
+              onClick={() => handleSelect('plain_text')}
+              className={`relative flex flex-col items-start p-3 rounded-lg border text-left transition-all text-sm
+                ${selected === 'plain_text'
+                  ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                  : 'border-border hover:border-primary/40 hover:bg-muted/50'}`}
+            >
+              <div className="flex items-center justify-between w-full mb-1">
+                <FileText className="h-4 w-4 text-muted-foreground" />
+                {selected === 'plain_text' && (
+                  <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
+                )}
+              </div>
+              <span className="font-medium">Plain Text</span>
+              <span className="text-xs text-muted-foreground">Simple text format, no styling</span>
             </button>
 
             {/* Uploaded templates matching docType */}

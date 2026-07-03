@@ -19,7 +19,7 @@ from .ingestion.text_splitter import split_text
 from .core.bedrock import embed_texts
 from .ingestion.embedder import embed_texts_with_usage
 from .ingestion.vector_store import upsert_chunks
-from .chains.orchestrator import run_generation_pipeline, run_formatting_pipeline, run_arch_iteration
+from .chains.orchestrator import run_generation_pipeline, run_formatting_pipeline, run_arch_iteration, apply_sme_changes
 
 logging.basicConfig(
     level=logging.INFO,
@@ -130,7 +130,7 @@ def process_generation_job(db, message: dict) -> None:
         logger.error(f"Generation job {msg.job_id} not found in DB after retries")
         return
 
-    run_generation_pipeline(db=db, job=job)
+    run_generation_pipeline(db=db, job=job, model_id=msg.model_id)
     logger.info(f"Generation job {msg.job_id} complete — status: {job.status}")
 
 
@@ -158,6 +158,32 @@ def process_format_job(db, message: dict) -> None:
         logger.info(f"Format job {job_id} complete — status: {job.status}")
     except Exception as e:
         logger.error(f"process_format_job FAILED:\n{traceback.format_exc()}")
+
+
+def process_sme_apply_job(db, message: dict) -> None:
+    """Handle user's decision on the SME review (apply=True/False)."""
+    import traceback
+    job_id = message.get("job_id", "")
+    apply = bool(message.get("apply", False))
+    logger.info(f"Processing sme_apply job: job_id={job_id} apply={apply}")
+    try:
+        job = None
+        for attempt in range(5):
+            try:
+                result = db.execute(select(GenerationJob).where(GenerationJob.id == uuid.UUID(job_id)))
+                job = result.scalar_one_or_none()
+            except Exception as e:
+                logger.warning(f"DB query failed on attempt {attempt+1}: {e}")
+            if job:
+                break
+            time.sleep(2 ** attempt)
+        if not job:
+            logger.error(f"Job {job_id} not found for sme_apply")
+            return
+        apply_sme_changes(db=db, job=job, apply=apply)
+        logger.info(f"SME apply job {job_id} complete — apply={apply}")
+    except Exception as e:
+        logger.error(f"process_sme_apply_job FAILED:\n{traceback.format_exc()}")
 
 
 def process_arch_iterate_job(db, message: dict) -> None:
@@ -219,6 +245,8 @@ def main():
                             process_format_job(db, body)
                         elif job_type == "arch_iterate":
                             process_arch_iterate_job(db, body)
+                        elif job_type == "sme_apply":
+                            process_sme_apply_job(db, body)
                         else:
                             process_generation_job(db, body)
 

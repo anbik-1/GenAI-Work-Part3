@@ -8,7 +8,7 @@ from sys import path as sys_path
 sys_path.insert(0, "/app")
 from shared import (
     SearchRequest, SearchResponse, SearchResult,
-    BEDROCK_EMBEDDING_MODEL_ID, BEDROCK_LLM_MODEL_ID, TOP_K_RESULTS,
+    BEDROCK_EMBEDDING_MODEL_ID, TOP_K_RESULTS,
 )
 from ..core.database import get_db
 from ..core.auth import get_current_user_sub
@@ -110,7 +110,7 @@ async def semantic_search(
         f"Answer:"
     )
     response = bedrock.invoke_model(
-        modelId=BEDROCK_LLM_MODEL_ID,
+        modelId=settings.bedrock_llm_model_id,
         body=json.dumps({
             "anthropic_version": "bedrock-2023-05-31",
             "max_tokens": 1024,

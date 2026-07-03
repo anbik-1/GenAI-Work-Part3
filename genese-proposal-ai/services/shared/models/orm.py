@@ -83,6 +83,7 @@ class GenerationJob(Base):
     arch_json = Column(JSON)                      # Claude's architecture design
     arch_s3_key = Column(String(1000))            # S3 key for the PNG
     arch_iteration = Column(Integer, default=0)  # How many times iterated
+    template_name = Column(String(100))           # 'plain_text', custom type, or None for default
     created_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime)
 

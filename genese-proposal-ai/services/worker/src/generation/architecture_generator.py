@@ -8,7 +8,6 @@ import os
 import tempfile
 import boto3
 from ..core.config import get_settings
-from shared import BEDROCK_LLM_MODEL_ID
 
 # ── Prompt ────────────────────────────────────────────────────────────────────
 
@@ -187,7 +186,7 @@ def design_architecture(
         human_content += f"\n\nPREVIOUS ARCHITECTURE:\n{previous_json}\n\nUSER FEEDBACK:\n{feedback}\n\nPlease revise the architecture based on the feedback above."
 
     response = bedrock.invoke_model(
-        modelId=BEDROCK_LLM_MODEL_ID,
+        modelId=settings.bedrock_llm_model_id,
         body=json.dumps({
             "anthropic_version": "bedrock-2023-05-31",
             "max_tokens": 2048,

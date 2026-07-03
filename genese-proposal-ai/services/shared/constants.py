@@ -61,6 +61,10 @@ CASE_STUDY_SECTIONS = [
 ]
 
 # Bedrock model IDs
+# Default LLM model ID. Override via BEDROCK_LLM_MODEL_ID env var in ECS task definition.
+# Supported Bedrock models: us.anthropic.claude-sonnet-4-6, us.anthropic.claude-haiku-3-5,
+#   us.anthropic.claude-sonnet-4-5, amazon.nova-pro-v1:0
+# For non-Bedrock: set USE_OPENAI=true and OPENAI_API_KEY (requires code change in bedrock.py)
 BEDROCK_LLM_MODEL_ID = "us.anthropic.claude-sonnet-4-6"
 BEDROCK_EMBEDDING_MODEL_ID = "amazon.titan-embed-text-v2:0"
 EMBEDDING_DIMENSION = 1024  # Amazon Titan Text Embeddings v2 default output dimension

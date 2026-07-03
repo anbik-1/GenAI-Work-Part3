@@ -17,6 +17,10 @@ class WorkerSettings(BaseSettings):
     # SQS polling
     sqs_wait_time_seconds: int = Field(default=20, alias="SQS_WAIT_TIME_SECONDS")
     sqs_max_messages: int = Field(default=1, alias="SQS_MAX_MESSAGES")
+    # Bedrock model IDs — override via env var in ECS task definition or .env
+    # to swap models without a code deployment
+    bedrock_llm_model_id: str = Field(default="us.anthropic.claude-sonnet-4-6", alias="BEDROCK_LLM_MODEL_ID")
+    bedrock_embedding_model_id: str = Field(default="amazon.titan-embed-text-v2:0", alias="BEDROCK_EMBEDDING_MODEL_ID")
 
     class Config:
         env_file = ".env"

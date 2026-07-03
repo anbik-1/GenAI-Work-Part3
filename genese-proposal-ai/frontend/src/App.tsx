@@ -12,6 +12,7 @@ import { LoginPage } from '@/pages/LoginPage';
 import { AuthCallbackPage } from '@/pages/AuthCallbackPage';
 import { PortalPage } from '@/pages/PortalPage';
 import { ArchReferencesPage } from '@/pages/ArchReferencesPage';
+import { UsersPage } from '@/pages/UsersPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, loading } = useAuth();
@@ -37,6 +38,7 @@ export default function App() {
                 <Route path="/documents" element={<DocumentsPage />} />
                 <Route path="/history" element={<HistoryPage />} />
                 <Route path="/arch-references" element={<ArchReferencesPage />} />
+                <Route path="/users" element={<UsersPage />} />
               </Route>
             </Routes>
             <Toaster />

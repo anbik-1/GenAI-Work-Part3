@@ -45,8 +45,13 @@ class GenerationRequest(BaseModel):
     key_requirements: str = Field(..., min_length=3)
     context_notes: Optional[str] = None
     generation_constraints: Optional[str] = None
-    # Optional: template_type to use (e.g. "proposal"); None means built-in default
+    # Optional: template_type to use (e.g. "proposal"); None means built-in default.
+    # Special value: "plain_text" generates a minimal unstyled document
+    # (plain headings + body text, no Genese branding, no header/footer).
     template_name: Optional[str] = None
+    # Optional: override the Bedrock LLM model for this specific generation job.
+    # If not provided, the worker uses BEDROCK_LLM_MODEL_ID env var / default.
+    model_id: Optional[str] = None
 
 
 class RagContextItem(BaseModel):
@@ -138,5 +143,9 @@ class GenerationJobMessage(BaseModel):
     key_requirements: str
     context_notes: Optional[str]
     user_id: str
-    # Optional: custom template to use during formatting
+    # Optional: custom template to use during formatting.
+    # Special value: "plain_text" generates a minimal unstyled document.
     template_name: Optional[str] = None
+    # Optional: override the Bedrock LLM model for this job.
+    # If None, the worker resolves via BEDROCK_LLM_MODEL_ID env var / default.
+    model_id: Optional[str] = None
