@@ -3,6 +3,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .core.config import get_settings
 from .routers import health, documents, generate, search, jobs, auth, templates
+from .routers.arch_references import router as arch_references_router
+from .routers.portal import router as portal_router
 
 settings = get_settings()
 
@@ -30,3 +32,5 @@ app.include_router(generate.router, prefix="/generate", tags=["Generate"])
 app.include_router(search.router, prefix="/search", tags=["Search"])
 app.include_router(jobs.router, prefix="/jobs", tags=["Jobs"])
 app.include_router(templates.router, prefix="/templates", tags=["Templates"])
+app.include_router(arch_references_router, prefix="/arch-references", tags=["arch-references"])
+app.include_router(portal_router, prefix="/portal", tags=["Portal"])

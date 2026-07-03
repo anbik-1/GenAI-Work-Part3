@@ -10,6 +10,8 @@ import { DocumentsPage } from '@/pages/DocumentsPage';
 import { HistoryPage } from '@/pages/HistoryPage';
 import { LoginPage } from '@/pages/LoginPage';
 import { AuthCallbackPage } from '@/pages/AuthCallbackPage';
+import { PortalPage } from '@/pages/PortalPage';
+import { ArchReferencesPage } from '@/pages/ArchReferencesPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, loading } = useAuth();
@@ -27,12 +29,14 @@ export default function App() {
             <Routes>
               <Route path="/login" element={<LoginPage />} />
               <Route path="/auth/callback" element={<AuthCallbackPage />} />
+              <Route path="/portal/:jobId" element={<PortalPage />} />
               <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
                 <Route index element={<Navigate to="/generate" replace />} />
                 <Route path="/generate" element={<GeneratePage />} />
                 <Route path="/search" element={<SearchPage />} />
                 <Route path="/documents" element={<DocumentsPage />} />
                 <Route path="/history" element={<HistoryPage />} />
+                <Route path="/arch-references" element={<ArchReferencesPage />} />
               </Route>
             </Routes>
             <Toaster />

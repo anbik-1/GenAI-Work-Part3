@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { FileText, Download, ExternalLink, CheckCircle, Loader2, AlertCircle, Cpu, Coins, Zap, ThumbsUp, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
+import { FileText, Download, ExternalLink, CheckCircle, Loader2, AlertCircle, Cpu, Coins, Zap, ThumbsUp, RefreshCw, ChevronDown, ChevronRight, Sparkles } from 'lucide-react';
 import { TemplateSelector } from '@/components/TemplateSelector';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -78,6 +78,10 @@ export function GeneratePage() {
   const [generationConstraints, setGenerationConstraints] = useState('');
   const [constraintsOpen, setConstraintsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  // Smart Import state
+  const [importOpen, setImportOpen] = useState(false);
+  const [importText, setImportText] = useState('');
+  const [importLoading, setImportLoading] = useState(false);
   // Architecture review state
   const [archPreviewUrl, setArchPreviewUrl] = useState<string | null>(null);
   const [archIteration, setArchIteration] = useState(0);
@@ -137,6 +141,31 @@ export function GeneratePage() {
     setConstraintsOpen(true);
   };
 
+  const handleExtractRequirements = async () => {
+    if (!importText.trim()) return;
+    setImportLoading(true);
+    try {
+      const result = await api.post<{
+        client_name?: string;
+        key_requirements: string;
+        context_notes?: string;
+        engagement_type?: string;
+      }>('/generate/extract-requirements', { text: importText });
+      if (result.client_name) setClientName(result.client_name);
+      if (result.key_requirements) setRequirements(result.key_requirements);
+      if (result.context_notes) setContextNotes(result.context_notes);
+      if (result.engagement_type) {
+        const match = ENGAGEMENT_TYPES.find(t => t.value === result.engagement_type);
+        if (match) setEngagementType(match.value);
+      }
+      toast({ title: 'Requirements extracted!', description: 'Review and adjust as needed.', variant: 'success' });
+    } catch (err) {
+      toast({ title: 'Extraction failed', description: err instanceof Error ? err.message : 'Failed to extract', variant: 'destructive' });
+    } finally {
+      setImportLoading(false);
+    }
+  };
+
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!clientName.trim() || !requirements.trim()) {
@@ -190,6 +219,50 @@ export function GeneratePage() {
         </CardHeader>
         <CardContent className="p-6 pt-2">
           <form onSubmit={handleGenerate} className="space-y-5">
+
+            {/* ── Smart Import (collapsible) ── */}
+            <div className="border rounded-lg overflow-hidden border-primary/30">
+              <button
+                type="button"
+                className="w-full flex items-center justify-between px-3 py-2.5 text-sm font-medium hover:bg-muted/50 transition-colors"
+                onClick={() => setImportOpen(o => !o)}
+                aria-expanded={importOpen}
+              >
+                <span className="flex items-center gap-2 text-primary">
+                  <Sparkles className="h-4 w-4" />
+                  Smart Import
+                  <span className="text-xs font-normal text-muted-foreground">(optional)</span>
+                </span>
+                {importOpen
+                  ? <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                  : <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                }
+              </button>
+              {importOpen && (
+                <div className="px-3 pb-3 pt-1 space-y-3 border-t bg-muted/10">
+                  <p className="text-xs text-muted-foreground pt-1">
+                    Paste a client email, meeting notes, or RFP — AI will extract client name, requirements, and engagement type.
+                  </p>
+                  <Textarea
+                    placeholder="Paste a client email, meeting notes, or RFP text here..."
+                    className="min-h-[120px] text-sm"
+                    value={importText}
+                    onChange={e => setImportText(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleExtractRequirements}
+                    disabled={importLoading || !importText.trim()}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+                  >
+                    {importLoading
+                      ? <><Loader2 className="h-4 w-4 animate-spin" />Extracting...</>
+                      : <><Sparkles className="h-4 w-4" />Extract Requirements</>
+                    }
+                  </button>
+                </div>
+              )}
+            </div>
 
             {/* Document Type */}
             <div className="space-y-2">

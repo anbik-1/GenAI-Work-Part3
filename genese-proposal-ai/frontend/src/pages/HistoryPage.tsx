@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Download, FileText, RefreshCw, ThumbsUp, Eye, Plus, X, Tag, Loader2, AlertCircle,
-  GitBranch, ChevronDown, ChevronUp,
+  GitBranch, ChevronDown, ChevronUp, Trophy, Link2, Globe,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -23,15 +23,28 @@ interface Job {
   error_message?: string;
   key_requirements?: string;
   context_notes?: string;
+  outcome?: 'won' | 'lost' | 'pending';
+}
+
+interface ProposalScore {
+  overall_score?: number;
+  completeness?: number;
+  clarity?: number;
+  technical_depth?: number;
+  client_alignment?: number;
+  value_proposition?: number;
+  summary?: string;
 }
 
 interface JobDetail extends Job {
   download_url?: string;
+  pdf_url?: string;
   token_usage?: {
     input_tokens?: number;
     output_tokens?: number;
     total_tokens?: number;
   };
+  proposal_score?: ProposalScore | null;
 }
 
 interface ArchData {
@@ -381,6 +394,29 @@ function OverviewModal({ job, detail, loading, onClose, onDownload }: OverviewMo
   }, []);
 
   const tokenUsage = detail?.token_usage;
+  const score = detail?.proposal_score;
+
+  const scoreDimensions: { key: keyof ProposalScore; label: string }[] = [
+    { key: 'completeness',       label: 'Completeness'       },
+    { key: 'clarity',            label: 'Clarity'            },
+    { key: 'technical_depth',    label: 'Technical Depth'    },
+    { key: 'client_alignment',   label: 'Client Alignment'   },
+    { key: 'value_proposition',  label: 'Value Proposition'  },
+  ];
+
+  function scoreColor(val?: number): string {
+    if (val === undefined || val === null) return 'bg-muted';
+    if (val > 7) return 'bg-green-500';
+    if (val >= 5) return 'bg-yellow-400';
+    return 'bg-red-500';
+  }
+
+  function scoreTextColor(val?: number): string {
+    if (val === undefined || val === null) return 'text-muted-foreground';
+    if (val > 7) return 'text-green-600';
+    if (val >= 5) return 'text-yellow-600';
+    return 'text-red-600';
+  }
 
   return (
     <div
@@ -467,20 +503,65 @@ function OverviewModal({ job, detail, loading, onClose, onDownload }: OverviewMo
                   </div>
                 </div>
               )}
+
+              {/* Proposal Score (Feature 4) */}
+              {score && (
+                <div className="space-y-2.5 border rounded-lg p-4 bg-muted/20">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Proposal Score</span>
+                    {score.overall_score !== undefined && score.overall_score !== null && (
+                      <span className={`text-2xl font-bold ${scoreTextColor(score.overall_score)}`}>
+                        {score.overall_score.toFixed(1)}<span className="text-sm font-normal text-muted-foreground">/10</span>
+                      </span>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    {scoreDimensions.map(({ key, label }) => {
+                      const val = score[key] as number | undefined;
+                      const pct = val !== undefined && val !== null ? (val / 10) * 100 : 0;
+                      return (
+                        <div key={key} className="flex items-center gap-3">
+                          <span className="text-xs text-muted-foreground w-36 shrink-0">{label}</span>
+                          <div className="flex-1 h-2 bg-secondary rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all ${scoreColor(val)}`}
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                          <span className={`text-xs font-semibold w-8 text-right ${scoreTextColor(val)}`}>
+                            {val !== undefined && val !== null ? val.toFixed(1) : '—'}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {score.summary && (
+                    <p className="text-xs text-muted-foreground italic border-t pt-2">{score.summary}</p>
+                  )}
+                </div>
+              )}
             </>
           )}
         </div>
 
         {/* Footer */}
         {!loading && job.status === 'complete' && (
-          <div className="px-6 py-4 border-t shrink-0 bg-background">
+          <div className="px-6 py-4 border-t shrink-0 bg-background flex gap-3">
             <Button
-              className="w-full"
+              className="flex-1"
               onClick={() => { onDownload(job.job_id); onClose(); }}
             >
               <Download className="mr-2 h-4 w-4" />
               Download .docx
             </Button>
+            {detail?.pdf_url && (
+              <Button variant="outline" className="flex-1" asChild>
+                <a href={detail.pdf_url} target="_blank" rel="noopener noreferrer">
+                  <Download className="mr-2 h-4 w-4" />
+                  Download PDF
+                </a>
+              </Button>
+            )}
           </div>
         )}
       </div>
@@ -634,13 +715,21 @@ interface JobCardProps {
   onOpenLightbox: (jobId: string) => void;
   onOpenOverview: (job: Job) => void;
   onOpenIterate: (job: Job) => void;
+  onOutcomeChange: (jobId: string, outcome: 'won' | 'lost' | 'pending') => void;
+  onShareLink: (jobId: string) => void;
 }
 
-function JobCard({ job, versionLabel, onDownload, onRetry, onOpenLightbox, onOpenOverview, onOpenIterate }: JobCardProps) {
+function JobCard({ job, versionLabel, onDownload, onRetry, onOpenLightbox, onOpenOverview, onOpenIterate, onOutcomeChange, onShareLink }: JobCardProps) {
   const isActive = job.status === 'queued' || job.status === 'processing';
   const summary = job.key_requirements
     ? job.key_requirements.slice(0, 100) + (job.key_requirements.length > 100 ? '…' : '')
     : null;
+
+  const outcomes: { value: 'won' | 'lost' | 'pending'; label: string; activeClass: string }[] = [
+    { value: 'won',     label: 'Won',     activeClass: 'bg-green-500 text-white border-green-500' },
+    { value: 'lost',    label: 'Lost',    activeClass: 'bg-red-500 text-white border-red-500' },
+    { value: 'pending', label: 'Pending', activeClass: 'bg-gray-400 text-white border-gray-400' },
+  ];
 
   return (
     <Card
@@ -656,7 +745,8 @@ function JobCard({ job, versionLabel, onDownload, onRetry, onOpenLightbox, onOpe
               className="group relative cursor-default min-w-0"
               title={summary ?? undefined}
             >
-              <h2 className="text-xl font-bold leading-tight truncate max-w-[220px]">
+              <h2 className="text-xl font-bold leading-tight truncate max-w-[220px] flex items-center gap-1.5">
+                {job.outcome === 'won' && <Trophy className="h-4 w-4 text-yellow-500 shrink-0" />}
                 {job.client_name}
               </h2>
               {summary && (
@@ -669,6 +759,12 @@ function JobCard({ job, versionLabel, onDownload, onRetry, onOpenLightbox, onOpe
             <span className="shrink-0 inline-flex items-center rounded-full bg-primary/10 text-primary text-xs font-semibold px-2 py-0.5">
               {versionLabel}
             </span>
+            {/* Portal link indicator */}
+            {job.status === 'complete' && (
+              <span title="Portal link available">
+                <Globe className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              </span>
+            )}
           </div>
           <Badge
             variant={statusVariant(job.status)}
@@ -718,6 +814,10 @@ function JobCard({ job, versionLabel, onDownload, onRetry, onOpenLightbox, onOpe
                 <Eye className="h-4 w-4 mr-1.5" />
                 View Architecture
               </Button>
+              <Button size="sm" variant="outline" onClick={() => onShareLink(job.job_id)}>
+                <Link2 className="h-4 w-4 mr-1.5" />
+                Share Link
+              </Button>
             </>
           )}
 
@@ -764,6 +864,27 @@ function JobCard({ job, versionLabel, onDownload, onRetry, onOpenLightbox, onOpe
             </div>
           )}
         </div>
+
+        {/* Win/Loss outcome chips (Feature 2) — complete jobs only */}
+        {job.status === 'complete' && (
+          <div className="flex items-center gap-1.5 pt-1">
+            {outcomes.map(o => (
+              <button
+                key={o.value}
+                type="button"
+                onClick={() => onOutcomeChange(job.job_id, o.value)}
+                className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium border transition-colors
+                  ${job.outcome === o.value
+                    ? o.activeClass
+                    : 'border-muted-foreground/30 text-muted-foreground hover:border-muted-foreground/60'
+                  }`}
+              >
+                {o.value === 'won' && <Trophy className="h-3 w-3" />}
+                {o.label}
+              </button>
+            ))}
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -779,6 +900,8 @@ interface ClientGroupProps {
   onOpenLightbox: (jobId: string) => void;
   onOpenOverview: (job: Job) => void;
   onOpenIterate: (job: Job) => void;
+  onOutcomeChange: (jobId: string, outcome: 'won' | 'lost' | 'pending') => void;
+  onShareLink: (jobId: string) => void;
 }
 
 function ClientGroup({
@@ -789,6 +912,8 @@ function ClientGroup({
   onOpenLightbox,
   onOpenOverview,
   onOpenIterate,
+  onOutcomeChange,
+  onShareLink,
 }: ClientGroupProps) {
   const [collapsed, setCollapsed] = useState(false);
 
@@ -830,6 +955,8 @@ function ClientGroup({
               onOpenLightbox={onOpenLightbox}
               onOpenOverview={onOpenOverview}
               onOpenIterate={onOpenIterate}
+              onOutcomeChange={onOutcomeChange}
+              onShareLink={onShareLink}
             />
           ))}
         </div>
@@ -858,11 +985,18 @@ export function HistoryPage() {
   // Iterate modal state
   const [iterateJob, setIterateJob] = useState<Job | null>(null);
 
+  // Outcome state (job_id -> outcome)
+  const [outcomes, setOutcomes] = useState<Record<string, 'won' | 'lost' | 'pending'>>({});
+
   // ── Fetch jobs ──────────────────────────────────────────────────────────────
   const fetchJobs = useCallback(async () => {
     try {
       const data = await api.get<Job[]>('/jobs');
       setJobs(data);
+      // Seed outcomes from fetched data
+      const outcomeMap: Record<string, 'won' | 'lost' | 'pending'> = {};
+      data.forEach(j => { if (j.outcome) outcomeMap[j.job_id] = j.outcome; });
+      setOutcomes(prev => ({ ...outcomeMap, ...prev }));
     } catch {
       toast({ title: 'Failed to load history', variant: 'destructive' });
     } finally {
@@ -871,6 +1005,29 @@ export function HistoryPage() {
   }, [toast]);
 
   useEffect(() => { fetchJobs(); }, [fetchJobs]);
+
+  // ── Outcome tracking (Feature 2) ────────────────────────────────────────────
+  const handleOutcomeChange = async (jobId: string, outcome: 'won' | 'lost' | 'pending') => {
+    // Optimistic update
+    setOutcomes(prev => ({ ...prev, [jobId]: outcome }));
+    setJobs(prev => prev.map(j => j.job_id === jobId ? { ...j, outcome } : j));
+    try {
+      await api.post(`/generate/${jobId}/outcome`, { outcome });
+    } catch (err) {
+      toast({ title: 'Failed to save outcome', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
+    }
+  };
+
+  // ── Share Link (Feature 3) ──────────────────────────────────────────────────
+  const handleShareLink = async (jobId: string) => {
+    const url = `${window.location.origin}/portal/${jobId}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast({ title: 'Portal link copied to clipboard!', variant: 'success' });
+    } catch {
+      toast({ title: 'Copy failed', description: 'Could not copy to clipboard.', variant: 'destructive' });
+    }
+  };
 
   // ── Download ────────────────────────────────────────────────────────────────
   const handleDownload = async (jobId: string) => {
@@ -1040,12 +1197,14 @@ export function HistoryPage() {
               <ClientGroup
                 key={clientName}
                 clientName={clientName}
-                jobs={clientGroups[clientName]}
+                jobs={clientGroups[clientName].map(j => ({ ...j, outcome: outcomes[j.job_id] ?? j.outcome }))}
                 onDownload={handleDownload}
                 onRetry={handleRetry}
                 onOpenLightbox={openLightbox}
                 onOpenOverview={openOverview}
                 onOpenIterate={setIterateJob}
+                onOutcomeChange={handleOutcomeChange}
+                onShareLink={handleShareLink}
               />
             ))}
           </div>

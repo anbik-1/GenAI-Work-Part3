@@ -56,6 +56,7 @@ async def submit_generation_job(
         key_requirements=request.key_requirements,
         context_notes=request.context_notes,
         user_id=str(user.id),
+        template_name=request.template_name,
     )
     publish_job(msg.model_dump())
 
@@ -147,10 +148,78 @@ async def retry_job(
         key_requirements=row["key_requirements"],
         context_notes=row["context_notes"],
         user_id=str(row["user_id"]) if row["user_id"] else "",
+        # template_name is not persisted in the DB; user must re-select if needed
+        template_name=None,
     )
     publish_job(msg.model_dump())
 
     return {"job_id": str(job_id), "status": "queued", "message": "Job re-queued successfully"}
+
+
+@router.post("/extract-requirements")
+async def extract_requirements(
+    body: dict,
+    _: str = Depends(get_current_user_sub),
+):
+    """Use Claude to extract structured requirements from pasted text."""
+    import boto3, json
+    from ..core.config import get_settings
+    settings = get_settings()
+    text = body.get("text", "")[:3000]
+    if not text.strip():
+        raise HTTPException(status_code=400, detail="No text provided")
+
+    bedrock = boto3.client("bedrock-runtime", region_name=settings.aws_region)
+    prompt = f"""Extract structured proposal requirements from this text. Return ONLY JSON:
+{{"client_name": "company name if found or null", "key_requirements": "comprehensive requirements paragraph", "context_notes": "any technical constraints or preferences", "engagement_type": "one of: aws_migration, data_platform, managed_services, security_audit, devops_transformation, ai_ml_platform, cloud_native_development, finops_optimization, cloud_adoption, disaster_recovery, cloud_optimization, other"}}
+
+Text to analyze:
+{text}"""
+
+    model_id = getattr(settings, 'bedrock_llm_model_id', 'us.anthropic.claude-sonnet-4-5')
+    resp = bedrock.invoke_model(
+        modelId=model_id,
+        body=json.dumps({
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 1024,
+            "temperature": 0.1,
+            "messages": [{"role": "user", "content": prompt}]
+        })
+    )
+    raw = json.loads(resp["body"].read())["content"][0]["text"].strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        raw = raw[4:] if raw.startswith("json") else raw
+    return json.loads(raw.strip())
+
+
+@router.post("/{job_id}/outcome")
+async def set_job_outcome(
+    job_id: uuid.UUID,
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(get_current_user_sub),
+):
+    """Set win/loss/pending outcome for a completed job."""
+    from sqlalchemy import text as sql_text
+    outcome = body.get("outcome", "pending")
+    if outcome not in ("won", "lost", "pending"):
+        raise HTTPException(status_code=400, detail="outcome must be won, lost, or pending")
+
+    row = (await db.execute(
+        sql_text("SELECT id FROM generation_jobs WHERE id = :id"),
+        {"id": str(job_id)}
+    )).mappings().one_or_none()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    await db.execute(
+        sql_text("UPDATE generation_jobs SET outcome = :outcome WHERE id = CAST(:id AS uuid)"),
+        {"outcome": outcome, "id": str(job_id)}
+    )
+
+    return {"job_id": str(job_id), "outcome": outcome}
 
 
 @router.get("/{job_id}/architecture")
@@ -267,8 +336,9 @@ async def get_job_status(
     # Use raw SQL to avoid async ORM stale column metadata issues with ALTER TABLE columns
     row = (await db.execute(
         text("""SELECT id, status, status_detail, rag_context, tavily_sources,
-                       output_s3_key, error_message, llm_model,
-                       input_tokens, output_tokens, created_at, completed_at
+                       output_s3_key, pdf_s3_key, error_message, llm_model,
+                       input_tokens, output_tokens, created_at, completed_at,
+                       proposal_score, outcome
                 FROM generation_jobs WHERE id = :job_id"""),
         {"job_id": str(job_id)}
     )).mappings().one_or_none()
@@ -276,10 +346,14 @@ async def get_job_status(
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
 
-    # Build download URL if complete
+    # Build download URLs if complete
     download_url = None
-    if row["status"] == JOB_STATUS["COMPLETE"] and row["output_s3_key"]:
-        download_url = get_presigned_url(row["output_s3_key"])
+    pdf_download_url = None
+    if row["status"] == JOB_STATUS["COMPLETE"]:
+        if row["output_s3_key"]:
+            download_url = get_presigned_url(row["output_s3_key"])
+        if row["pdf_s3_key"]:
+            pdf_download_url = get_presigned_url(row["pdf_s3_key"])
 
     # Cost calculation
     INPUT_PRICE_PER_1K  = 0.003
@@ -299,6 +373,7 @@ async def get_job_status(
         "rag_context": row["rag_context"],
         "tavily_sources": row["tavily_sources"],
         "download_url": download_url,
+        "pdf_download_url": pdf_download_url,
         "error_message": row["error_message"],
         "llm_model": row["llm_model"] or "us.anthropic.claude-sonnet-4-6",
         "input_tokens": input_tokens,
@@ -306,4 +381,6 @@ async def get_job_status(
         "llm_cost_usd": llm_cost_usd,
         "created_at": row["created_at"].isoformat() if row["created_at"] else None,
         "completed_at": row["completed_at"].isoformat() if row["completed_at"] else None,
+        "proposal_score": row["proposal_score"] if "proposal_score" in row.keys() else None,
+        "outcome": row["outcome"] if "outcome" in row.keys() else None,
     }

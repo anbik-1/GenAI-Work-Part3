@@ -94,6 +94,45 @@ def run_formatting_pipeline(db, job) -> None:
             ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         )
 
+        # Generate PDF version (non-fatal)
+        try:
+            from ..generation.pdf_builder import build_pdf_from_docx
+            pdf_bytes = build_pdf_from_docx(docx_bytes, job.client_name, job.document_type)
+            pdf_key = f"generated/{job.id}/{job.client_name.replace(' ', '_')}_{job.document_type}.pdf"
+            s3.put_object(
+                Bucket=settings.documents_bucket,
+                Key=pdf_key,
+                Body=pdf_bytes,
+                ContentType="application/pdf",
+            )
+            from sqlalchemy import text as sql_text
+            db.execute(
+                sql_text("UPDATE generation_jobs SET pdf_s3_key = :key WHERE id = CAST(:id AS uuid)"),
+                {"key": pdf_key, "id": str(job.id)},
+            )
+            db.commit()
+        except Exception as pdf_err:
+            logger.warning(f"PDF generation failed (non-fatal): {pdf_err}")
+
+        # Score the proposal (non-fatal)
+        try:
+            from ..chains.scoring_chain import score_proposal
+            score_result = score_proposal(
+                document_type=job.document_type,
+                client_name=job.client_name,
+                sections_content=sections_content,
+            )
+            from sqlalchemy import text as sql_text
+            db.execute(
+                sql_text(
+                    "UPDATE generation_jobs SET proposal_score = CAST(:score AS jsonb) WHERE id = CAST(:id AS uuid)"
+                ),
+                {"score": json.dumps(score_result), "id": str(job.id)},
+            )
+            db.commit()
+        except Exception:
+            pass  # Non-fatal
+
         job.status = JOB_STATUS["COMPLETE"]
         job.status_detail = "Document ready for download"
         job.output_s3_key = output_key
