@@ -78,6 +78,21 @@ async def submit_generation_job(
     user_sub: str = Depends(get_current_user_sub),
 ):
     """Submit a new proposal/SoW/case study generation job. Returns a job_id for polling."""
+
+    # Whitelist model IDs — reject anything not in the allowed list
+    # This prevents users from passing arbitrary model IDs or probing for access
+    ALLOWED_MODELS = {
+        "us.anthropic.claude-sonnet-4-6",
+        "us.anthropic.claude-sonnet-4-5",
+        "us.anthropic.claude-haiku-3-5",
+        "amazon.nova-pro-v1:0",
+    }
+    if request.model_id and request.model_id not in ALLOWED_MODELS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"model_id '{request.model_id}' is not allowed. Use GET /generate/models for the list."
+        )
+
     # Get or create user
     result = await db.execute(select(User).where(User.cognito_sub == user_sub))
     user = result.scalar_one_or_none()
