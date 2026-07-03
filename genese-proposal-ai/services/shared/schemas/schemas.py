@@ -44,6 +44,8 @@ class GenerationRequest(BaseModel):
     engagement_type: str = Field(..., min_length=1, max_length=100)
     key_requirements: str = Field(..., min_length=10)
     context_notes: Optional[str] = None
+    # Optional: template_type to use (e.g. "proposal"); None means built-in default
+    template_name: Optional[str] = None
 
 
 class RagContextItem(BaseModel):
@@ -135,3 +137,5 @@ class GenerationJobMessage(BaseModel):
     key_requirements: str
     context_notes: Optional[str]
     user_id: str
+    # Optional: custom template to use during formatting
+    template_name: Optional[str] = None
