@@ -1,7 +1,19 @@
 """Tavily web search chain for validating architecture recommendations."""
 from tavily import TavilyClient
-from ..core.redis_cache import cache_get, cache_set, make_cache_key
 from ..core.config import get_tavily_api_key
+
+# Simple in-memory cache (per worker process lifetime, ~10min jobs)
+# Redis was removed from the stack — in-memory is sufficient since each
+# worker handles one job at a time and Tavily has a 1000 req/month free limit.
+_cache: dict = {}
+
+
+def _cache_get(key: str):
+    return _cache.get(key)
+
+
+def _cache_set(key: str, value):
+    _cache[key] = value
 
 
 def validate_with_tavily(
@@ -19,9 +31,9 @@ def validate_with_tavily(
         return []
 
     query = _build_validation_query(topic, engagement_type)
-    cache_key = make_cache_key(query)
+    cache_key = query  # use query string directly as key
 
-    cached = cache_get(cache_key)
+    cached = _cache_get(cache_key)
     if cached is not None:
         return cached
 
@@ -46,7 +58,7 @@ def validate_with_tavily(
             }
             for r in results.get("results", [])
         ]
-        cache_set(cache_key, sources)
+        _cache_set(cache_key, sources)
         return sources
     except Exception as e:
         print(f"[validation_chain] Tavily search skipped: {type(e).__name__} — proceeding without web validation")
