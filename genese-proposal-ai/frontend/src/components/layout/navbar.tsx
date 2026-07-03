@@ -1,5 +1,5 @@
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { FileText, Search, BookOpen, History, Sun, Moon, LogOut, LayoutTemplate } from 'lucide-react';
+import { FileText, Search, BookOpen, History, Sun, Moon, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useTheme } from './theme-provider';
 import { useAuth } from '@/contexts/AuthContext';
@@ -8,7 +8,6 @@ const NAV_ITEMS = [
   { to: '/generate', label: 'Generate', icon: FileText },
   { to: '/search', label: 'Search', icon: Search },
   { to: '/documents', label: 'Documents', icon: BookOpen },
-  { to: '/templates', label: 'Templates', icon: LayoutTemplate },
   { to: '/history', label: 'History', icon: History },
 ];
 

@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Download, FileText, RefreshCw, ThumbsUp, Eye, Plus, X, Tag, Loader2, AlertCircle,
+  GitBranch, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -9,7 +10,7 @@ import { api } from '@/lib/api';
 import { useToast } from '@/components/ui/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Job {
   job_id: string;
@@ -21,6 +22,16 @@ interface Job {
   completed_at?: string;
   error_message?: string;
   key_requirements?: string;
+  context_notes?: string;
+}
+
+interface JobDetail extends Job {
+  download_url?: string;
+  token_usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    total_tokens?: number;
+  };
 }
 
 interface ArchData {
@@ -77,7 +88,6 @@ function statusVariant(status: string): StatusVariant {
   }
 }
 
-/** Tailwind class overrides for badge color by status */
 function statusBadgeClass(status: string): string {
   switch (status) {
     case 'complete':
@@ -106,7 +116,15 @@ function formatError(msg?: string): string {
   return `⚠ ${msg.slice(0, 120)}`;
 }
 
-// ─── Tag Chip ────────────────────────────────────────────────────────────────
+function formatDate(iso?: string): string {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString(undefined, {
+    year: 'numeric', month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  });
+}
+
+// ─── Tag Chip ─────────────────────────────────────────────────────────────────
 
 function TagChip({ label, onRemove }: { label: string; onRemove: () => void }) {
   return (
@@ -123,7 +141,7 @@ function TagChip({ label, onRemove }: { label: string; onRemove: () => void }) {
   );
 }
 
-// ─── Tag Manager (per card) ──────────────────────────────────────────────────
+// ─── Tag Manager (per card) ───────────────────────────────────────────────────
 
 function TagManager({ jobId }: { jobId: string }) {
   const [tags, setTags] = useState<string[]>(() => getTagsForJob(jobId));
@@ -237,14 +255,12 @@ interface LightboxProps {
 function ArchLightbox({ archData, loading, onClose, onApprove, onRevise }: LightboxProps) {
   const [feedback, setFeedback] = useState('');
 
-  // Close on Escape key
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  // Prevent body scroll while open
   useEffect(() => {
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = ''; };
@@ -263,12 +279,10 @@ function ArchLightbox({ archData, loading, onClose, onApprove, onRevise }: Light
       aria-modal="true"
       role="dialog"
     >
-      {/* Lightbox panel — stop propagation so clicking inside doesn't close */}
       <div
         className="relative bg-background rounded-xl shadow-2xl w-full max-w-4xl mx-4 max-h-[90vh] flex flex-col overflow-hidden"
         onClick={e => e.stopPropagation()}
       >
-        {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b shrink-0">
           <div>
             <h2 className="text-lg font-semibold">Architecture Review</h2>
@@ -285,7 +299,6 @@ function ArchLightbox({ archData, loading, onClose, onApprove, onRevise }: Light
           </button>
         </div>
 
-        {/* Body */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
           {loading ? (
             <div className="flex items-center justify-center py-20">
@@ -307,7 +320,6 @@ function ArchLightbox({ archData, loading, onClose, onApprove, onRevise }: Light
             </div>
           )}
 
-          {/* Feedback textarea */}
           {!loading && (
             <div className="space-y-2">
               <p className="text-sm font-medium text-muted-foreground">Request changes (optional):</p>
@@ -321,7 +333,6 @@ function ArchLightbox({ archData, loading, onClose, onApprove, onRevise }: Light
           )}
         </div>
 
-        {/* Footer actions */}
         {!loading && (
           <div className="flex items-center gap-3 px-6 py-4 border-t shrink-0 bg-background">
             <Button
@@ -347,16 +358,285 @@ function ArchLightbox({ archData, loading, onClose, onApprove, onRevise }: Light
   );
 }
 
+// ─── Overview Modal ───────────────────────────────────────────────────────────
+
+interface OverviewModalProps {
+  job: Job;
+  detail: JobDetail | null;
+  loading: boolean;
+  onClose: () => void;
+  onDownload: (jobId: string) => void;
+}
+
+function OverviewModal({ job, detail, loading, onClose, onDownload }: OverviewModalProps) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = ''; };
+  }, []);
+
+  const tokenUsage = detail?.token_usage;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+      onClick={onClose}
+      aria-modal="true"
+      role="dialog"
+    >
+      <div
+        className="relative bg-background rounded-xl shadow-2xl w-full max-w-2xl mx-4 max-h-[90vh] flex flex-col overflow-hidden"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b shrink-0">
+          <div>
+            <h2 className="text-lg font-semibold">Document Overview</h2>
+            <p className="text-sm text-muted-foreground">{job.client_name}</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-md p-1.5 hover:bg-muted transition-colors"
+            aria-label="Close"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+          {loading ? (
+            <div className="flex items-center justify-center py-16">
+              <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" />
+              <span className="ml-3 text-muted-foreground">Loading details…</span>
+            </div>
+          ) : (
+            <>
+              {/* Status */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide w-32 shrink-0">Status</span>
+                <Badge
+                  variant={statusVariant(job.status)}
+                  className={`capitalize ${statusBadgeClass(job.status)}`}
+                >
+                  {statusLabel(job.status)}
+                </Badge>
+              </div>
+
+              {/* Fields */}
+              {(
+                [
+                  ['Document Type', job.document_type.replace(/_/g, ' ')],
+                  ['Engagement Type', job.engagement_type ? job.engagement_type.replace(/_/g, ' ') : '—'],
+                  ['Created', formatDate(job.created_at)],
+                  ['Completed', formatDate(job.completed_at)],
+                ] as [string, string][]
+              ).map(([label, value]) => (
+                <div key={label} className="flex items-start gap-2">
+                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide w-32 shrink-0 pt-0.5">{label}</span>
+                  <span className="text-sm">{value}</span>
+                </div>
+              ))}
+
+              {/* Token usage */}
+              {tokenUsage && (
+                <div className="flex items-start gap-2">
+                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide w-32 shrink-0 pt-0.5">Tokens</span>
+                  <span className="text-sm">
+                    {tokenUsage.total_tokens != null
+                      ? `${tokenUsage.total_tokens.toLocaleString()} total`
+                      : '—'}
+                    {tokenUsage.input_tokens != null && tokenUsage.output_tokens != null
+                      ? ` (↑${tokenUsage.input_tokens.toLocaleString()} in / ↓${tokenUsage.output_tokens.toLocaleString()} out)`
+                      : ''}
+                  </span>
+                </div>
+              )}
+
+              {/* Key requirements */}
+              {job.key_requirements && (
+                <div className="space-y-1.5">
+                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide block">Key Requirements</span>
+                  <div className="rounded-md border bg-muted/30 px-4 py-3 text-sm whitespace-pre-wrap leading-relaxed max-h-56 overflow-y-auto">
+                    {job.key_requirements}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Footer */}
+        {!loading && job.status === 'complete' && (
+          <div className="px-6 py-4 border-t shrink-0 bg-background">
+            <Button
+              className="w-full"
+              onClick={() => { onDownload(job.job_id); onClose(); }}
+            >
+              <Download className="mr-2 h-4 w-4" />
+              Download .docx
+            </Button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Iterate Modal ────────────────────────────────────────────────────────────
+
+interface IterateModalProps {
+  job: Job;
+  onClose: () => void;
+  onQueued: () => void;
+}
+
+function IterateModal({ job, onClose, onQueued }: IterateModalProps) {
+  const { toast } = useToast();
+  const [iterationNotes, setIterationNotes] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = ''; };
+  }, []);
+
+  const handleGenerate = async () => {
+    if (!iterationNotes.trim()) return;
+    setSubmitting(true);
+    try {
+      const combinedNotes = job.context_notes
+        ? `${job.context_notes}\n\n--- Iteration Notes ---\n${iterationNotes.trim()}`
+        : `--- Iteration Notes ---\n${iterationNotes.trim()}`;
+
+      await api.post('/generate', {
+        client_name: job.client_name,
+        document_type: job.document_type,
+        engagement_type: job.engagement_type,
+        key_requirements: job.key_requirements ?? '',
+        context_notes: combinedNotes,
+      });
+
+      toast({ title: 'New version queued!', description: `A new version for ${job.client_name} is being generated.`, variant: 'success' });
+      onQueued();
+      onClose();
+    } catch (err) {
+      toast({
+        title: 'Failed to queue new version',
+        description: err instanceof Error ? err.message : 'Unknown error',
+        variant: 'destructive',
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+      onClick={onClose}
+      aria-modal="true"
+      role="dialog"
+    >
+      <div
+        className="relative bg-background rounded-xl shadow-2xl w-full max-w-2xl mx-4 max-h-[90vh] flex flex-col overflow-hidden"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b shrink-0">
+          <div>
+            <h2 className="text-lg font-semibold">Iterate Document</h2>
+            <p className="text-sm text-muted-foreground">{job.client_name} — new version</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-md p-1.5 hover:bg-muted transition-colors"
+            aria-label="Close"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+          {/* Original requirements read-only */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide block">
+              Original Requirements (read-only)
+            </label>
+            <div className="rounded-md border bg-muted/30 px-4 py-3 text-sm whitespace-pre-wrap leading-relaxed max-h-40 overflow-y-auto text-muted-foreground">
+              {job.key_requirements || '(none)'}
+            </div>
+          </div>
+
+          {/* Iteration notes */}
+          <div className="space-y-1.5">
+            <label
+              htmlFor="iteration-notes"
+              className="text-xs font-medium uppercase tracking-wide block"
+            >
+              What to change in the next version? <span className="text-red-500">*</span>
+            </label>
+            <textarea
+              id="iteration-notes"
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm min-h-[100px] resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              placeholder="e.g. Add a section on data migration strategy, expand the pricing section, use a more formal tone…"
+              value={iterationNotes}
+              onChange={e => setIterationNotes(e.target.value)}
+              autoFocus
+            />
+            <p className="text-xs text-muted-foreground">
+              These notes will be appended to the context and a new document generation will be queued.
+            </p>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t shrink-0 bg-background flex gap-3">
+          <Button variant="outline" className="flex-1" onClick={onClose} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button
+            className="flex-1"
+            onClick={handleGenerate}
+            disabled={!iterationNotes.trim() || submitting}
+          >
+            {submitting ? (
+              <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Queuing…</>
+            ) : (
+              <><GitBranch className="mr-2 h-4 w-4" />Generate New Version</>
+            )}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Job Card ─────────────────────────────────────────────────────────────────
 
 interface JobCardProps {
   job: Job;
+  versionLabel: string;
   onDownload: (jobId: string) => void;
   onRetry: (jobId: string, clientName: string) => void;
   onOpenLightbox: (jobId: string) => void;
+  onOpenOverview: (job: Job) => void;
+  onOpenIterate: (job: Job) => void;
 }
 
-function JobCard({ job, onDownload, onRetry, onOpenLightbox }: JobCardProps) {
+function JobCard({ job, versionLabel, onDownload, onRetry, onOpenLightbox, onOpenOverview, onOpenIterate }: JobCardProps) {
   const isActive = job.status === 'queued' || job.status === 'processing';
   const summary = job.key_requirements
     ? job.key_requirements.slice(0, 100) + (job.key_requirements.length > 100 ? '…' : '')
@@ -369,21 +649,26 @@ function JobCard({ job, onDownload, onRetry, onOpenLightbox }: JobCardProps) {
       }`}
     >
       <CardHeader className="pb-2 pt-5 px-5">
-        {/* Client name + status badge */}
+        {/* Client name + version label + status badge */}
         <div className="flex items-start justify-between gap-2">
-          <div
-            className="group relative cursor-default"
-            title={summary ?? undefined}
-          >
-            <h2 className="text-xl font-bold leading-tight truncate max-w-[260px]">
-              {job.client_name}
-            </h2>
-            {/* Tooltip on hover for key_requirements */}
-            {summary && (
-              <div className="absolute left-0 top-full mt-1 z-30 hidden group-hover:block w-64 rounded-md bg-popover border text-popover-foreground text-xs p-2 shadow-lg pointer-events-none">
-                {summary}
-              </div>
-            )}
+          <div className="flex items-center gap-2 min-w-0">
+            <div
+              className="group relative cursor-default min-w-0"
+              title={summary ?? undefined}
+            >
+              <h2 className="text-xl font-bold leading-tight truncate max-w-[220px]">
+                {job.client_name}
+              </h2>
+              {summary && (
+                <div className="absolute left-0 top-full mt-1 z-30 hidden group-hover:block w-64 rounded-md bg-popover border text-popover-foreground text-xs p-2 shadow-lg pointer-events-none">
+                  {summary}
+                </div>
+              )}
+            </div>
+            {/* Version badge */}
+            <span className="shrink-0 inline-flex items-center rounded-full bg-primary/10 text-primary text-xs font-semibold px-2 py-0.5">
+              {versionLabel}
+            </span>
           </div>
           <Badge
             variant={statusVariant(job.status)}
@@ -393,7 +678,7 @@ function JobCard({ job, onDownload, onRetry, onOpenLightbox }: JobCardProps) {
           </Badge>
         </div>
 
-        {/* Subtitle: doc type + engagement type */}
+        {/* Subtitle */}
         <p className="text-sm text-muted-foreground mt-0.5">
           {job.document_type.replace(/_/g, ' ')}
           {job.engagement_type ? ` · ${job.engagement_type.replace(/_/g, ' ')}` : ''}
@@ -401,10 +686,7 @@ function JobCard({ job, onDownload, onRetry, onOpenLightbox }: JobCardProps) {
 
         {/* Date */}
         <p className="text-xs text-muted-foreground mt-1">
-          {new Date(job.created_at).toLocaleString(undefined, {
-            year: 'numeric', month: 'short', day: 'numeric',
-            hour: '2-digit', minute: '2-digit',
-          })}
+          {formatDate(job.created_at)}
         </p>
       </CardHeader>
 
@@ -427,6 +709,10 @@ function JobCard({ job, onDownload, onRetry, onOpenLightbox }: JobCardProps) {
               <Button size="sm" variant="outline" onClick={() => onDownload(job.job_id)}>
                 <Download className="h-4 w-4 mr-1.5" />
                 Download
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => onOpenOverview(job)}>
+                <FileText className="h-4 w-4 mr-1.5" />
+                Overview
               </Button>
               <Button size="sm" variant="outline" onClick={() => onOpenLightbox(job.job_id)}>
                 <Eye className="h-4 w-4 mr-1.5" />
@@ -458,6 +744,19 @@ function JobCard({ job, onDownload, onRetry, onOpenLightbox }: JobCardProps) {
             </Button>
           )}
 
+          {/* Iterate button for complete + failed */}
+          {(job.status === 'complete' || job.status === 'failed') && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-primary/40 text-primary hover:bg-primary/10"
+              onClick={() => onOpenIterate(job)}
+            >
+              <GitBranch className="h-4 w-4 mr-1.5" />
+              Iterate
+            </Button>
+          )}
+
           {isActive && (
             <div className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400">
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -467,6 +766,75 @@ function JobCard({ job, onDownload, onRetry, onOpenLightbox }: JobCardProps) {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+// ─── Client Group ─────────────────────────────────────────────────────────────
+
+interface ClientGroupProps {
+  clientName: string;
+  jobs: Job[];
+  onDownload: (jobId: string) => void;
+  onRetry: (jobId: string, clientName: string) => void;
+  onOpenLightbox: (jobId: string) => void;
+  onOpenOverview: (job: Job) => void;
+  onOpenIterate: (job: Job) => void;
+}
+
+function ClientGroup({
+  clientName,
+  jobs,
+  onDownload,
+  onRetry,
+  onOpenLightbox,
+  onOpenOverview,
+  onOpenIterate,
+}: ClientGroupProps) {
+  const [collapsed, setCollapsed] = useState(false);
+
+  // Sort jobs oldest-first so v1 is the first document generated
+  const sorted = [...jobs].sort(
+    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+  );
+
+  return (
+    <div className="space-y-3">
+      {/* Group header */}
+      <button
+        className="flex items-center gap-2 w-full text-left group"
+        onClick={() => setCollapsed(c => !c)}
+        aria-expanded={!collapsed}
+      >
+        <h3 className="text-base font-semibold text-foreground group-hover:text-primary transition-colors">
+          {clientName}
+        </h3>
+        <span className="text-xs text-muted-foreground rounded-full bg-muted px-2 py-0.5">
+          {jobs.length} {jobs.length === 1 ? 'version' : 'versions'}
+        </span>
+        {collapsed
+          ? <ChevronDown className="h-4 w-4 text-muted-foreground ml-auto" />
+          : <ChevronUp className="h-4 w-4 text-muted-foreground ml-auto" />
+        }
+      </button>
+
+      {/* Cards grid */}
+      {!collapsed && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {sorted.map((job, idx) => (
+            <JobCard
+              key={job.job_id}
+              job={job}
+              versionLabel={`v${idx + 1}`}
+              onDownload={onDownload}
+              onRetry={onRetry}
+              onOpenLightbox={onOpenLightbox}
+              onOpenOverview={onOpenOverview}
+              onOpenIterate={onOpenIterate}
+            />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -481,6 +849,14 @@ export function HistoryPage() {
   const [lightboxJobId, setLightboxJobId] = useState<string | null>(null);
   const [archData, setArchData] = useState<ArchData | null>(null);
   const [archLoading, setArchLoading] = useState(false);
+
+  // Overview modal state
+  const [overviewJob, setOverviewJob] = useState<Job | null>(null);
+  const [overviewDetail, setOverviewDetail] = useState<JobDetail | null>(null);
+  const [overviewLoading, setOverviewLoading] = useState(false);
+
+  // Iterate modal state
+  const [iterateJob, setIterateJob] = useState<Job | null>(null);
 
   // ── Fetch jobs ──────────────────────────────────────────────────────────────
   const fetchJobs = useCallback(async () => {
@@ -506,7 +882,27 @@ export function HistoryPage() {
     }
   };
 
-  // ── Open lightbox ───────────────────────────────────────────────────────────
+  // ── Open Overview ───────────────────────────────────────────────────────────
+  const openOverview = async (job: Job) => {
+    setOverviewJob(job);
+    setOverviewDetail(null);
+    setOverviewLoading(true);
+    try {
+      const data = await api.get<JobDetail>(`/generate/${job.job_id}`);
+      setOverviewDetail(data);
+    } catch {
+      // Non-fatal — show modal without extra details
+    } finally {
+      setOverviewLoading(false);
+    }
+  };
+
+  const closeOverview = () => {
+    setOverviewJob(null);
+    setOverviewDetail(null);
+  };
+
+  // ── Open Lightbox ───────────────────────────────────────────────────────────
   const openLightbox = async (jobId: string) => {
     setLightboxJobId(jobId);
     setArchData(null);
@@ -554,7 +950,6 @@ export function HistoryPage() {
     try {
       await api.post(`/generate/${lightboxJobId}/iterate-architecture`, { feedback });
       toast({ title: 'Feedback sent!', description: 'Revising architecture…', variant: 'success' });
-      // Re-fetch after a short delay so the PNG regenerates
       setTimeout(() => openLightbox(lightboxJobId), 5000);
     } catch (err) {
       toast({
@@ -584,6 +979,21 @@ export function HistoryPage() {
       });
     }
   };
+
+  // ── Group jobs by client_name ───────────────────────────────────────────────
+  const clientGroups = jobs.reduce<Record<string, Job[]>>((acc, job) => {
+    const key = job.client_name || 'Unknown Client';
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(job);
+    return acc;
+  }, {});
+
+  // Sort groups by the most recent job in each group (newest group first)
+  const sortedClientNames = Object.keys(clientGroups).sort((a, b) => {
+    const latestA = Math.max(...clientGroups[a].map(j => new Date(j.created_at).getTime()));
+    const latestB = Math.max(...clientGroups[b].map(j => new Date(j.created_at).getTime()));
+    return latestB - latestA;
+  });
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
@@ -623,16 +1033,19 @@ export function HistoryPage() {
           </Card>
         )}
 
-        {/* Job cards grid */}
-        {!loading && jobs.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {jobs.map(job => (
-              <JobCard
-                key={job.job_id}
-                job={job}
+        {/* Client groups */}
+        {!loading && sortedClientNames.length > 0 && (
+          <div className="space-y-8">
+            {sortedClientNames.map(clientName => (
+              <ClientGroup
+                key={clientName}
+                clientName={clientName}
+                jobs={clientGroups[clientName]}
                 onDownload={handleDownload}
                 onRetry={handleRetry}
                 onOpenLightbox={openLightbox}
+                onOpenOverview={openOverview}
+                onOpenIterate={setIterateJob}
               />
             ))}
           </div>
@@ -649,6 +1062,30 @@ export function HistoryPage() {
           onRevise={handleRevise}
         />
       )}
+
+      {/* Overview Modal */}
+      {overviewJob && (
+        <OverviewModal
+          job={overviewJob}
+          detail={overviewDetail}
+          loading={overviewLoading}
+          onClose={closeOverview}
+          onDownload={handleDownload}
+        />
+      )}
+
+      {/* Iterate Modal */}
+      {iterateJob && (
+        <IterateModal
+          job={iterateJob}
+          onClose={() => setIterateJob(null)}
+          onQueued={() => setTimeout(fetchJobs, 2000)}
+        />
+      )}
     </>
   );
 }
+
+
+
+

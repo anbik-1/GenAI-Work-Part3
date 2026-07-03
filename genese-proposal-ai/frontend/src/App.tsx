@@ -8,8 +8,8 @@ import { GeneratePage } from '@/pages/GeneratePage';
 import { SearchPage } from '@/pages/SearchPage';
 import { DocumentsPage } from '@/pages/DocumentsPage';
 import { HistoryPage } from '@/pages/HistoryPage';
-import { TemplatesPage } from '@/pages/TemplatesPage';
 import { LoginPage } from '@/pages/LoginPage';
+import { AuthCallbackPage } from '@/pages/AuthCallbackPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, loading } = useAuth();
@@ -26,13 +26,13 @@ export default function App() {
           <JobProvider>
             <Routes>
               <Route path="/login" element={<LoginPage />} />
+              <Route path="/auth/callback" element={<AuthCallbackPage />} />
               <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
                 <Route index element={<Navigate to="/generate" replace />} />
                 <Route path="/generate" element={<GeneratePage />} />
                 <Route path="/search" element={<SearchPage />} />
                 <Route path="/documents" element={<DocumentsPage />} />
                 <Route path="/history" element={<HistoryPage />} />
-                <Route path="/templates" element={<TemplatesPage />} />
               </Route>
             </Routes>
             <Toaster />
