@@ -200,12 +200,9 @@ def run_formatting_pipeline(db: Session, job: GenerationJob, sme_review_enabled:
         else:
             logger.info(f"[orchestrator] Reusing stored sections for job {job.id} — no re-draft needed")
 
-        # SME review — now interactive: generates report, saves it, and PAUSES.
-        # The pipeline returns here; apply_sme_changes() (via /sme-apply endpoint)
-        # will re-enqueue a 'format' job (with sme_review_enabled=False) to continue.
-        if sme_review_enabled:
-            run_sme_review(db, job, sections_content)
-            return  # Pipeline intentionally pauses here waiting for user decision
+        # SME review has been REMOVED from the generation pipeline.
+        # It is now available as a post-generation tool in the History page.
+        # This avoids blocking the pipeline on interactive user decisions.
 
         # Download architecture PNG
         arch_png_bytes = None

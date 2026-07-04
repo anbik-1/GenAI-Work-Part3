@@ -72,7 +72,6 @@ const PIPELINE_STEPS = [
   { key: 'drafting_document',  label: 'Claude is drafting...',        pct: 55,  icon: '✍️' },
   { key: 'generating_diagram', label: 'Designing architecture...',    pct: 70,  icon: '🏗️' },
   { key: 'awaiting_review',    label: 'Review architecture',          pct: 80,  icon: '👁' },
-  { key: 'sme_reviewing',      label: 'SME Review — your input required', pct: 87, icon: '🎓' },
   { key: 'formatting_output',  label: 'Formatting .docx...',          pct: 92,  icon: '📄' },
   { key: 'complete',           label: 'Complete!',                     pct: 100, icon: '✅' },
 ];
@@ -250,10 +249,10 @@ export function GeneratePage() {
     if (!activeJob) return;
     setArchLoading(true);
     try {
-      await api.post(`/generate/${activeJob.job_id}/approve`, { sme_review_enabled: smeEnabled });
+      await api.post(`/generate/${activeJob.job_id}/approve`, {});
       toast({
         title: 'Architecture approved!',
-        description: smeEnabled ? 'SME review + document formatting started...' : 'Generating your final document now...',
+        description: 'Generating your final document now...',
         variant: 'success'
       });
       setArchPreviewUrl(null);
@@ -795,19 +794,7 @@ export function GeneratePage() {
                         </a>
                       )}
 
-                      {/* SME review toggle */}
-                      <label className="flex items-center space-x-2 cursor-pointer p-2 rounded-md border border-border hover:bg-muted/30 transition-colors">
-                        <input
-                          type="checkbox"
-                          checked={smeEnabled}
-                          onChange={e => setSmeEnabled(e.target.checked)}
-                          className="rounded"
-                        />
-                        <div>
-                          <span className="text-sm font-medium">Enable SME Review</span>
-                          <p className="text-xs text-muted-foreground">Claude acts as a domain expert and reviews the document before formatting — you'll see findings and decide whether to apply improvements</p>
-                        </div>
-                      </label>
+                      {/* SME Review moved to History page — not in generation pipeline */}
 
                       <Button className="w-full" onClick={handleApproveArch} disabled={archLoading}>
                         {archLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ThumbsUp className="mr-2 h-4 w-4" />}
@@ -834,177 +821,6 @@ export function GeneratePage() {
                     </div>
                   )}
 
-                  {/* ── SME Review Panel ───────────────────────────────────── */}
-                  {activeJob.status === 'sme_reviewing' && (
-                    <div className="border rounded-lg border-amber-300 bg-amber-50/50 dark:bg-amber-950/20 dark:border-amber-700 space-y-4 overflow-hidden">
-                      {/* Header */}
-                      <div className="flex items-center space-x-3 px-4 pt-4">
-                        <span className="text-2xl">🎓</span>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-sm">SME Review Complete — Your Decision Required</p>
-                          <p className="text-xs text-muted-foreground truncate">
-                            {smeReport?.persona ?? 'Domain expert has reviewed your proposal'}
-                          </p>
-                        </div>
-                        {smeReport && (
-                          <span className={`flex-shrink-0 px-2.5 py-1 rounded-full text-sm font-bold border ${scoreBadgeClass(smeReport.overall_score)}`}>
-                            {smeReport.overall_score}/10
-                          </span>
-                        )}
-                      </div>
-
-                      {smeReportLoading && !smeReport && (
-                        <div className="flex items-center justify-center py-8 text-muted-foreground text-sm space-x-2">
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          <span>Loading SME report...</span>
-                        </div>
-                      )}
-
-                      {smeReport && (
-                        <div className="px-4 pb-4 space-y-4">
-                          {/* Overall assessment */}
-                          <div className="bg-background rounded-lg p-3 border text-sm text-muted-foreground leading-relaxed">
-                            {smeReport.overall_assessment}
-                          </div>
-
-                          {/* Findings */}
-                          {smeReport.findings.length > 0 && (
-                            <div className="space-y-2">
-                              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                                Findings ({smeReport.findings.length})
-                              </p>
-                              <div className="space-y-2">
-                                {smeReport.findings.map((finding, i) => (
-                                  <div key={i} className="bg-background rounded-lg p-3 border space-y-1.5">
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${severityClasses(finding.severity)}`}>
-                                        {finding.severity === 'high' && <AlertTriangle className="h-3 w-3 mr-1" />}
-                                        {finding.severity === 'medium' && <AlertCircle className="h-3 w-3 mr-1" />}
-                                        {finding.severity === 'low' && <Info className="h-3 w-3 mr-1" />}
-                                        {finding.severity.charAt(0).toUpperCase() + finding.severity.slice(1)}
-                                      </span>
-                                      <span className="text-xs text-muted-foreground font-mono bg-muted px-1.5 py-0.5 rounded">
-                                        {sectionLabel(finding.section)}
-                                      </span>
-                                    </div>
-                                    <p className="text-sm font-medium">{finding.issue}</p>
-                                    <p className="text-xs text-muted-foreground leading-relaxed">
-                                      <span className="font-medium text-foreground">Recommendation: </span>
-                                      {finding.recommendation}
-                                    </p>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Discrepancies */}
-                          {smeReport.discrepancies.length > 0 && (
-                            <div className="space-y-2">
-                              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                                Cross-Section Discrepancies ({smeReport.discrepancies.length})
-                              </p>
-                              <div className="space-y-2">
-                                {smeReport.discrepancies.map((d, i) => (
-                                  <div key={i} className="bg-background rounded-lg p-3 border border-orange-200 dark:border-orange-800 flex gap-2">
-                                    <AlertTriangle className="h-4 w-4 text-orange-500 flex-shrink-0 mt-0.5" />
-                                    <div className="space-y-0.5">
-                                      <p className="text-sm">{d.description}</p>
-                                      {d.section && (
-                                        <p className="text-xs text-muted-foreground">
-                                          Section: <span className="font-mono bg-muted px-1 py-0.5 rounded">{sectionLabel(d.section)}</span>
-                                        </p>
-                                      )}
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Proposed improvements — before/after toggle */}
-                          {Object.keys(smeReport.proposed_improvements).length > 0 && (
-                            <div className="space-y-2">
-                              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                                Proposed Improvements ({Object.keys(smeReport.proposed_improvements).length} sections)
-                              </p>
-                              <div className="space-y-2">
-                                {Object.entries(smeReport.proposed_improvements).map(([section, proposedText]) => {
-                                  const isShowing = shownImprovements[section];
-                                  const originalText = (activeJob as any)?.sections_content?.[section];
-                                  return (
-                                    <div key={section} className="bg-background rounded-lg border overflow-hidden">
-                                      <button
-                                        type="button"
-                                        className="w-full flex items-center justify-between px-3 py-2 text-sm font-medium hover:bg-muted/30 transition-colors"
-                                        onClick={() => toggleImprovement(section)}
-                                      >
-                                        <span className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">
-                                          {sectionLabel(section)}
-                                        </span>
-                                        <span className="flex items-center gap-1 text-xs text-primary">
-                                          {isShowing ? (
-                                            <><EyeOff className="h-3 w-3" /> Hide diff</>
-                                          ) : (
-                                            <><Eye className="h-3 w-3" /> View diff</>
-                                          )}
-                                        </span>
-                                      </button>
-                                      {isShowing && (
-                                        <div className="px-3 pb-3 space-y-2 border-t">
-                                          {originalText && (
-                                            <div>
-                                              <p className="text-xs font-medium text-muted-foreground py-1">Original</p>
-                                              <p className="text-xs text-muted-foreground bg-muted/40 rounded p-2 whitespace-pre-wrap line-clamp-6">
-                                                {originalText}
-                                              </p>
-                                            </div>
-                                          )}
-                                          <div>
-                                            <p className="text-xs font-medium text-green-700 dark:text-green-400 py-1">Proposed</p>
-                                            <p className="text-xs bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 text-green-900 dark:text-green-100 rounded p-2 whitespace-pre-wrap line-clamp-6">
-                                              {proposedText}
-                                            </p>
-                                          </div>
-                                        </div>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Action buttons */}
-                          <div className="flex flex-col sm:flex-row gap-2 pt-1">
-                            <Button
-                              className="flex-1 bg-green-600 hover:bg-green-700 text-white"
-                              onClick={() => handleSmeApply(true)}
-                              disabled={smeApplyLoading}
-                            >
-                              {smeApplyLoading
-                                ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                : <CheckCircle className="mr-2 h-4 w-4" />
-                              }
-                              Apply SME Improvements &amp; Continue
-                            </Button>
-                            <Button
-                              variant="outline"
-                              className="flex-1"
-                              onClick={() => handleSmeApply(false)}
-                              disabled={smeApplyLoading}
-                            >
-                              {smeApplyLoading
-                                ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                : <RefreshCw className="mr-2 h-4 w-4" />
-                              }
-                              Skip &amp; Continue as-is
-                            </Button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
 
                   {/* Complete */}
                   {activeJob.status === 'complete' && (
