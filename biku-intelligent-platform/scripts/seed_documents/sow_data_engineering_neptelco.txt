@@ -1,0 +1,20 @@
+STATEMENT OF WORK — Data Engineering
+Client: NepTelco Communications
+Engagement Type: Data Platform
+Date: September 2023
+Prepared by: Genese Solution
+
+PROJECT OVERVIEW
+Design and implementation of a real-time customer analytics pipeline for NepTelco, processing 15 million CDR (Call Detail Records) daily to enable churn prediction, network quality monitoring, and regulatory reporting automation.
+
+SCOPE OF WORK
+Real-time CDR ingestion via Amazon Kinesis Data Streams (15M events/day). AWS Glue streaming ETL for CDR enrichment and aggregation. Amazon S3 data lake with Iceberg format for time-travel queries. Amazon Redshift Serverless for analyst queries. Apache Spark on AWS Glue for churn prediction feature engineering. Amazon SageMaker for churn prediction model training and deployment. Amazon QuickSight dashboards (network quality, customer 360, churn risk). Regulatory reporting automation: NTA reports generated automatically monthly.
+
+DELIVERABLES
+Complete data pipeline codebase in client Git repository. 12 QuickSight dashboards with defined SLAs. Churn prediction model with documented accuracy metrics (target: AUC > 0.82). Regulatory report automation for 4 NTA report templates. Data dictionary and lineage documentation. Operations runbook.
+
+ASSUMPTIONS
+NepTelco will provide CDR feed in standard ASN.1 format. Data retention: 13 months (regulatory requirement). NepTelco will assign 2 data engineers to shadow Genese team for knowledge transfer.
+
+TIMELINE AND PRICING
+12 weeks. Fixed price: USD 72,000. Monthly AWS cost estimate: USD 5,800/month.

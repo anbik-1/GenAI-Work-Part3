@@ -1,0 +1,23 @@
+CASE STUDY — Fintech Cloud Transformation
+Client: NepPay Digital Finance
+Engagement Type: AWS Migration + Security
+Date: October 2023
+Prepared by: Genese Solution
+
+CLIENT OVERVIEW
+NepPay Digital Finance is Nepal's fastest-growing digital payments platform, processing over 2 million transactions daily across mobile banking, merchant payments, and remittances. With 1.8 million registered users and regulatory oversight from Nepal Rastra Bank, NepPay required a cloud infrastructure that could handle explosive growth while maintaining strict compliance with Nepal's Payment and Settlement Act.
+
+THE CHALLENGE
+NepPay had outgrown its co-location data centre infrastructure within 18 months of launch. Peak transaction volumes during festival seasons caused service degradation, impacting merchant relationships. The monolithic payment engine could not scale horizontally, and the lack of a proper DR environment meant any failure risked significant regulatory penalties. Additionally, Nepal Rastra Bank's 2023 data sovereignty directive required all transaction data to be stored within Nepal — a requirement the existing co-location provider could not meet with a formal compliance framework.
+
+OUR SOLUTION
+Genese Solution architected and delivered a complete cloud transformation over 6 months. The solution decoupled the monolithic payment engine into 8 microservices deployed on Amazon ECS Fargate within the AWS Asia Pacific (Mumbai) region, the closest AWS region meeting NepPay's latency requirements. Transaction data is stored in Amazon Aurora PostgreSQL with AWS Backup ensuring automated daily backups to a secondary VPC. All data at rest and in transit is encrypted using AWS KMS with customer-managed keys audited quarterly. A dedicated AWS Direct Connect link from NepPay's Kathmandu office to Mumbai provides <8ms latency for internal operations.
+
+ARCHITECTURE OVERVIEW
+The production architecture consists of: Amazon Route 53 + CloudFront for global traffic management; Application Load Balancer with WAF for API traffic; 8 ECS Fargate microservices (auth, transaction, wallet, notification, reconciliation, reporting, admin, audit); Amazon Aurora PostgreSQL (primary) with read replicas for reporting workloads; Amazon ElastiCache Redis for session management and rate limiting; Amazon SQS for asynchronous transaction processing and reconciliation; AWS Lambda for scheduled reconciliation and reporting jobs; Amazon SNS + SES for customer notifications; AWS CloudTrail + CloudWatch for comprehensive audit logging required by Nepal Rastra Bank.
+
+RESULTS AND OUTCOMES
+Transaction processing capacity increased from 800 TPS to 12,000 TPS. Peak season performance: zero service degradation during Dashain 2023 (3x normal volume). Recovery Time Objective improved from 72 hours to 4 hours. Recovery Point Objective: 15 minutes. Infrastructure costs reduced by 28% versus co-location due to auto-scaling eliminating over-provisioning. Nepal Rastra Bank compliance certification achieved within 45 days of go-live. Customer satisfaction score (payment reliability): improved from 3.2/5 to 4.7/5.
+
+KEY TAKEAWAYS
+1. ECS Fargate with Application Auto Scaling based on custom CloudWatch metrics (transactions per second) provides precise cost-performance balance for payment workloads. 2. Amazon Aurora's Failover Replicas provide sub-30-second failover, critical for payment availability SLAs. 3. AWS WAF with rate-based rules successfully blocked 3 DDoS attempts in Q4 2023 without any manual intervention. 4. Embedding compliance requirements (audit logging, encryption, access controls) into CDK constructs from day one accelerated the NRB certification process significantly. 5. Genese's practice of conducting monthly Well-Architected Framework reviews has proactively identified and remediated 12 medium-risk findings since go-live.

@@ -26,8 +26,9 @@ from constructs import Construct
 
 class GeneseProposalAIStack(Stack):
 
-    def __init__(self, scope: Construct, construct_id: str, **kwargs):
+    def __init__(self, scope: Construct, construct_id: str, app_name: str = "genese-proposal-ai", **kwargs):
         super().__init__(scope, construct_id, **kwargs)
+        APP = app_name  # e.g. "biku-intelligent-platform" or "genese-proposal-ai"
 
         # ── VPC ──────────────────────────────────────────────────────────────
         vpc = ec2.Vpc(self, "Vpc",
@@ -41,7 +42,7 @@ class GeneseProposalAIStack(Stack):
 
         # ── S3 ───────────────────────────────────────────────────────────────
         documents_bucket = s3.Bucket(self, "DocumentsBucket",
-            bucket_name=f"genese-proposal-ai-docs-{self.account}-{self.region}",
+            bucket_name=f"{APP}-docs-{self.account}-{self.region}",
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
             removal_policy=RemovalPolicy.DESTROY,
             auto_delete_objects=True,
@@ -53,7 +54,7 @@ class GeneseProposalAIStack(Stack):
         )
 
         frontend_bucket = s3.Bucket(self, "FrontendBucket",
-            bucket_name=f"genese-proposal-ai-frontend-{self.account}-{self.region}",
+            bucket_name=f"{APP}-frontend-{self.account}-{self.region}",
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
             removal_policy=RemovalPolicy.DESTROY,
             auto_delete_objects=True,
@@ -74,7 +75,7 @@ class GeneseProposalAIStack(Stack):
 
         # ── Cognito ───────────────────────────────────────────────────────────
         user_pool = cognito.UserPool(self, "UserPool",
-            user_pool_name="genese-proposal-ai",
+            user_pool_name=APP,
             self_sign_up_enabled=False,       # Internal tool — admin creates users
             sign_in_aliases=cognito.SignInAliases(email=True),
             password_policy=cognito.PasswordPolicy(min_length=8, require_lowercase=True, require_uppercase=True, require_digits=True, require_symbols=False),
@@ -92,7 +93,7 @@ class GeneseProposalAIStack(Stack):
         db_sg = ec2.SecurityGroup(self, "DbSG", vpc=vpc, description="Aurora SG")
 
         db_secret = secretsmanager.Secret(self, "DbSecret",
-            secret_name="/genese/db-credentials",
+            secret_name=f"/{APP}/db-credentials",
             generate_secret_string=secretsmanager.SecretStringGenerator(
                 secret_string_template='{"username":"genese","dbname":"genese"}',
                 generate_string_key="password",
@@ -123,27 +124,27 @@ class GeneseProposalAIStack(Stack):
 
         # ── SQS Queue + DLQ ───────────────────────────────────────────────────
         dlq = sqs.Queue(self, "GenerationDLQ",
-            queue_name="genese-generation-jobs-dlq",
+            queue_name=f"{APP}-jobs-dlq",
             retention_period=Duration.days(14),
         )
 
         generation_queue = sqs.Queue(self, "GenerationQueue",
-            queue_name="genese-generation-jobs",
+            queue_name=f"{APP}-jobs",
             visibility_timeout=Duration.seconds(600),
             retention_period=Duration.days(4),
             dead_letter_queue=sqs.DeadLetterQueue(max_receive_count=3, queue=dlq),
         )
 
         # ── ECR Repositories — import existing (images already pushed) ────────
-        api_repo = ecr.Repository.from_repository_name(self, "ApiRepo", "genese-proposal-ai-api")
-        worker_repo = ecr.Repository.from_repository_name(self, "WorkerRepo", "genese-proposal-ai-worker")
+        api_repo = ecr.Repository.from_repository_name(self, "ApiRepo", f"{APP}-api")
+        worker_repo = ecr.Repository.from_repository_name(self, "WorkerRepo", f"{APP}-worker")
 
         # ── ECS Cluster ───────────────────────────────────────────────────────
-        cluster = ecs.Cluster(self, "Cluster", cluster_name="genese-proposal-ai", vpc=vpc)
+        cluster = ecs.Cluster(self, "Cluster", cluster_name=APP, vpc=vpc)
 
         # Tavily secret
         tavily_secret = secretsmanager.Secret(self, "TavilySecret",
-            secret_name="/genese/tavily-api-key",
+            secret_name=f"/{APP}/tavily-api-key",
             secret_string_value=SecretValue.unsafe_plain_text("REPLACE_WITH_TAVILY_KEY"),
         )
 
@@ -166,7 +167,7 @@ class GeneseProposalAIStack(Stack):
             environment=common_env,
             logging=ecs.LogDrivers.aws_logs(
                 stream_prefix="api",
-                log_group=logs.LogGroup(self, "ApiLogs", log_group_name="/ecs/genese-api", removal_policy=RemovalPolicy.DESTROY),
+                log_group=logs.LogGroup(self, "ApiLogs", log_group_name=f"/ecs/{APP}-api", removal_policy=RemovalPolicy.DESTROY),
             ),
             port_mappings=[ecs.PortMapping(container_port=8000)],
             health_check=ecs.HealthCheck(
@@ -184,7 +185,7 @@ class GeneseProposalAIStack(Stack):
             environment=common_env,
             logging=ecs.LogDrivers.aws_logs(
                 stream_prefix="worker",
-                log_group=logs.LogGroup(self, "WorkerLogs", log_group_name="/ecs/genese-worker", removal_policy=RemovalPolicy.DESTROY),
+                log_group=logs.LogGroup(self, "WorkerLogs", log_group_name=f"/ecs/{APP}-worker", removal_policy=RemovalPolicy.DESTROY),
             ),
         )
 
@@ -254,7 +255,7 @@ class GeneseProposalAIStack(Stack):
         CfnOutput(self, "DocumentsBucketName", value=documents_bucket.bucket_name, description="Documents S3 bucket")
         CfnOutput(self, "UserPoolId", value=user_pool.user_pool_id, description="Cognito User Pool ID")
         CfnOutput(self, "UserPoolClientId", value=user_pool_client.user_pool_client_id, description="Cognito Client ID")
-        CfnOutput(self, "ApiRepoUri", value=f"{self.account}.dkr.ecr.{self.region}.amazonaws.com/genese-proposal-ai-api", description="ECR repo for API image")
-        CfnOutput(self, "WorkerRepoUri", value=f"{self.account}.dkr.ecr.{self.region}.amazonaws.com/genese-proposal-ai-worker", description="ECR repo for Worker image")
+        CfnOutput(self, "ApiRepoUri", value=f"{self.account}.dkr.ecr.{self.region}.amazonaws.com/{APP}-api", description="ECR repo for API image")
+        CfnOutput(self, "WorkerRepoUri", value=f"{self.account}.dkr.ecr.{self.region}.amazonaws.com/{APP}-worker", description="ECR repo for Worker image")
         CfnOutput(self, "DbSecretArn", value=db_secret.secret_arn, description="DB credentials secret ARN")
         CfnOutput(self, "TavilySecretArn", value=tavily_secret.secret_arn, description="Tavily API key secret ARN")

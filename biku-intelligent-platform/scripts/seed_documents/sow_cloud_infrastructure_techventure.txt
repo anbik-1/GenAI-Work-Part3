@@ -1,0 +1,39 @@
+STATEMENT OF WORK — Cloud Infrastructure Setup
+Client: TechVenture Innovations Ltd
+Engagement Type: Cloud Native Development
+Date: February 2024
+Prepared by: Genese Solution
+
+PROJECT OVERVIEW
+This Statement of Work governs the design, implementation, and handover of a production-grade AWS cloud infrastructure for TechVenture Innovations Ltd's SaaS platform. Genese Solution will deliver a complete Infrastructure-as-Code environment using AWS CDK, enabling TechVenture to scale from 0 to 100,000 users with zero-downtime deployments.
+
+SCOPE OF WORK
+In Scope: VPC and network architecture design and implementation; AWS Landing Zone with multi-account structure (Production, Staging, Development); ECS Fargate cluster with auto-scaling for all microservices; Aurora PostgreSQL Serverless v2 with read replicas; Amazon ElastiCache Redis for session management; Amazon SQS and SNS for event-driven architecture; AWS CodePipeline CI/CD for all services; Amazon CloudFront CDN with WAF; Route 53 DNS and ACM certificates; AWS CDK TypeScript IaC for all resources; CloudWatch dashboards and alarms; AWS Secrets Manager integration.
+
+Out of Scope: Application code development; third-party integrations not listed above; on-premises infrastructure; ongoing operations post-handover (covered by separate Managed Services SOW).
+
+DELIVERABLES
+1. Architecture Design Document (Week 2)
+2. Network and Security Design (Week 2)
+3. CDK codebase in Git repository (Week 6)
+4. Deployed Production environment (Week 6)
+5. Deployed Staging and Development environments (Week 6)
+6. CI/CD pipelines for all 5 services (Week 8)
+7. Runbook and Operations Guide (Week 8)
+8. Knowledge Transfer sessions (2 x 4-hour sessions, Week 8)
+9. Post-go-live support — 2 weeks hypercare
+
+ASSUMPTIONS AND EXCLUSIONS
+Assumptions: TechVenture will provide access to existing domain registrar within Week 1. TechVenture architects will participate in design workshops (2 x half-day). AWS account with sufficient service quotas will be provisioned before project start. Exclusions: Data migration from existing infrastructure; GDPR/compliance advisory; penetration testing.
+
+PROJECT TEAM
+Genese: 1 Cloud Architect (lead), 2 Cloud Engineers, 1 DevOps Engineer, 1 PM. TechVenture: 1 CTO (sponsor), 1 Tech Lead (liaison), 1 DevOps engineer (shadowing for knowledge transfer).
+
+TIMELINE AND MILESTONES
+Week 1-2: Architecture design and review. Week 3-4: Network, security, and core infrastructure. Week 5-6: Application services, databases, and CDN. Week 7-8: CI/CD, testing, and knowledge transfer. Week 9-10: Hypercare and final handover.
+
+PRICING
+Fixed-price engagement: USD 48,000. Payment terms: 30% on signing, 40% at Week 4 milestone, 30% on final delivery. AWS infrastructure costs are client responsibility.
+
+TERMS AND CONDITIONS
+This SOW is governed by the Master Services Agreement dated 15 January 2024. Changes to scope require written approval from both parties. Genese warrants deliverables for 30 days post-acceptance.

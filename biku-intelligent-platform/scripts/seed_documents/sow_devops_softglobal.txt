@@ -1,0 +1,20 @@
+STATEMENT OF WORK — DevOps Transformation
+Client: SoftGlobal Nepal
+Engagement Type: DevOps Transformation
+Date: December 2023
+Prepared by: Genese Solution
+
+PROJECT OVERVIEW
+This SOW covers the implementation of a complete DevSecOps platform for SoftGlobal Nepal, enabling automated CI/CD, infrastructure-as-code, and shift-left security practices across all 15 development teams.
+
+SCOPE OF WORK
+Implementation of AWS CodePipeline for all microservices. Infrastructure as Code migration (Terraform to AWS CDK). Container security scanning with Amazon ECR + Trivy. Static Application Security Testing (SAST) integration using SonarQube on AWS. Secrets management via AWS Secrets Manager replacing hardcoded credentials. GitOps workflow implementation using GitHub Actions + AWS CDK Pipelines. Environment promotion automation: Dev → Staging → Production with approval gates. Load testing integration using AWS Distributed Load Testing Solution. Runbook automation using AWS Systems Manager Run Command. Team training: 3 workshops covering CDK, CodePipeline, and security practices.
+
+DELIVERABLES
+Complete CI/CD pipeline templates for Java Spring Boot, Node.js, and Python services. CDK constructs library for SoftGlobal's standard AWS patterns. Security scanning integrated into all pipelines with quality gates. Deployed pipelines for 5 pilot services. Documentation and training materials.
+
+TIMELINE
+10 weeks. Pilot (Weeks 1-4): 5 services. Rollout (Weeks 5-8): Remaining 10 services. Hardening and training (Weeks 9-10).
+
+PRICING
+Fixed-price: USD 35,000. Includes all workshops and 30-day post-delivery support.

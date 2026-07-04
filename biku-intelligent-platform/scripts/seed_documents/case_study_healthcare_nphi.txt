@@ -1,0 +1,17 @@
+CASE STUDY — Healthcare Data Platform
+Client: National Public Health Institute
+Engagement Type: Data Platform + Security
+Date: May 2023
+Prepared by: Genese Solution
+
+CLIENT OVERVIEW
+The National Public Health Institute (NPHI) required a secure, scalable data platform to consolidate epidemiological surveillance data from 77 district health offices across Nepal, enabling real-time disease outbreak detection and public health reporting to WHO.
+
+THE CHALLENGE
+NPHI collected disease surveillance data via paper forms and Excel spreadsheets emailed from district offices, with significant delays (3-7 days) and data quality issues. During COVID-19, the inability to aggregate real-time data cost critical hours in outbreak response. WHO reporting required standardised data formats (HL7 FHIR) that the existing Excel-based system could not produce automatically.
+
+OUR SOLUTION
+Genese Solution built a secure public health data platform on AWS GovCloud (US) equivalent standards, using AWS ap-south-1 with strict data residency controls. The platform ingests data from district health offices via a web portal and mobile app (offline-capable using AWS Amplify DataStore), processes it through AWS Glue ETL with HL7 FHIR transformation, stores it in Amazon HealthLake for compliant medical data storage, and surfaces it via Amazon QuickSight dashboards for public health officials. Amazon SNS triggers automated outbreak alerts when configured disease thresholds are breached.
+
+RESULTS AND OUTCOMES
+Data collection latency reduced from 3-7 days to 15 minutes. WHO FHIR reporting automated, saving 40 analyst-hours per month. Outbreak detection capability: NPHI detected a Dengue cluster 48 hours earlier than previous system capability during the 2023 monsoon season. Data completeness improved from 68% to 94% within 6 months of deployment.

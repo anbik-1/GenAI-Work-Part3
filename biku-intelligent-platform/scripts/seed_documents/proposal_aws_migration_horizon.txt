@@ -1,0 +1,29 @@
+PROPOSAL — AWS Cloud Migration
+Client: Horizon Financial Group
+Engagement Type: AWS Migration
+Date: March 2024
+Prepared by: Genese Solution
+
+EXECUTIVE SUMMARY
+Genese Solution proposes a comprehensive cloud migration strategy for Horizon Financial Group, enabling a seamless transition of mission-critical workloads from on-premises infrastructure to Amazon Web Services. This engagement will deliver improved scalability, enhanced security posture, and a projected 35% reduction in total cost of ownership over three years.
+
+PROBLEM STATEMENT
+Horizon Financial Group currently operates 87% of its application portfolio on aging on-premises infrastructure with end-of-life hardware reaching capacity limits. The current environment suffers from slow provisioning cycles (average 21 days), limited disaster recovery capabilities (RTO of 72 hours), and escalating maintenance costs of $2.4M annually. Regulatory compliance requirements demand improved audit trails and data residency controls that legacy systems cannot adequately support.
+
+PROPOSED SOLUTION
+Genese Solution recommends a phased AWS migration using the 7R framework, prioritising a Rehost-then-Replatform strategy. Phase 1 will migrate 40 non-critical workloads using AWS Application Migration Service (MGN) within 60 days. Phase 2 will replatform tier-1 banking applications to managed AWS services including RDS Aurora, ECS Fargate, and Amazon MQ. Phase 3 will modernise remaining workloads to cloud-native architectures leveraging Lambda, API Gateway, and Step Functions.
+
+SOLUTION ARCHITECTURE
+The target architecture centres on a multi-account AWS Landing Zone using AWS Control Tower, with separate accounts for Production, Non-Production, Shared Services, and Security. All workloads will be deployed within a Transit Gateway connected VPC architecture ensuring network segmentation. Core services include: Amazon RDS Aurora (database), Amazon ECS Fargate (containerised workloads), AWS Direct Connect (hybrid connectivity), Amazon CloudFront (content delivery), AWS WAF (web application firewall), Amazon GuardDuty (threat detection), and AWS Config with custom conformance packs for financial services compliance (PCI-DSS, SOC2).
+
+TEAM
+Genese Solution will assign a dedicated project team comprising: 1 Cloud Architect (AWS Certified Solutions Architect Professional), 2 Cloud Engineers (AWS Certified), 1 DevOps Engineer, 1 Security Specialist, and 1 Project Manager with PMP certification. All team members have completed Genese's internal financial services cloud practice training.
+
+TIMELINE
+Phase 1 (Weeks 1-8): Discovery, assessment, and Landing Zone deployment. Phase 2 (Weeks 9-20): Wave 1 migration of 40 non-critical workloads. Phase 3 (Weeks 21-36): Tier-1 application replatforming. Phase 4 (Weeks 37-48): Modernisation and optimisation. Total engagement duration: 48 weeks.
+
+INVESTMENT
+Professional Services: USD 380,000. AWS infrastructure costs post-migration: estimated USD 42,000/month (vs current USD 65,000/month). Net 3-year TCO saving: USD 912,000. Investment payback period: 14 months.
+
+NEXT STEPS
+Genese Solution requests a 2-week discovery engagement to validate assumptions and refine migration waves. A kickoff workshop will be scheduled within 5 business days of contract signature. Genese will provide weekly executive status reports and maintain a real-time migration dashboard accessible to Horizon Financial Group leadership.

@@ -1,0 +1,29 @@
+PROPOSAL — Managed Cloud Services
+Client: MediCare Plus Hospital Group
+Engagement Type: Managed Services
+Date: November 2023
+Prepared by: Genese Solution
+
+EXECUTIVE SUMMARY
+Genese Solution proposes a comprehensive Managed Cloud Services engagement for MediCare Plus Hospital Group, providing 24x7 monitoring, operations, and optimisation of their AWS environment. This partnership will allow MediCare Plus to focus on patient care innovation while Genese manages cloud infrastructure reliability, security, and cost efficiency.
+
+PROBLEM STATEMENT
+MediCare Plus Hospital Group operates a critical AWS environment supporting 3 hospital campuses, an HIS (Hospital Information System), telemedicine platform, and medical imaging storage. The internal IT team of 4 engineers lacks the breadth of AWS expertise to manage the growing environment, resulting in 3 P1 incidents in the last 6 months (total downtime: 11.5 hours), a 22% AWS cost overrun versus budget, and delayed security patching creating compliance risk under HIPAA and local healthcare data regulations.
+
+PROPOSED SOLUTION
+Genese Solution's Managed Services offering provides: 24x7 NOC monitoring with SLA-backed response times, proactive security patching and compliance management, FinOps optimisation (targeting 20% cost reduction within 90 days), incident management and root cause analysis, weekly health reports, and a dedicated Technical Account Manager.
+
+SOLUTION ARCHITECTURE
+Monitoring stack: Amazon CloudWatch + AWS Health Dashboard + PagerDuty for alerting. Security: AWS Security Hub, GuardDuty, Config, and CloudTrail with Genese SIEM integration. Automation: AWS Systems Manager for patching; Lambda-based auto-remediation for common incident patterns. Cost management: AWS Cost Explorer + Compute Optimiser with weekly Savings Plan recommendations.
+
+SERVICE LEVELS
+P1 (Business Down): 15-minute response, 1-hour resolution target. P2 (Major Impact): 30-minute response, 4-hour resolution target. P3 (Minor Impact): 2-hour response, 24-hour resolution target. Availability SLA: 99.95% for managed workloads.
+
+TEAM
+1 Dedicated Technical Account Manager, 4-person 24x7 NOC team (rotational), 1 Security Analyst, 1 FinOps Specialist. All staff hold HIPAA awareness certification.
+
+INVESTMENT
+Monthly managed services fee: USD 8,500/month (billed annually). Includes: unlimited incident response for managed workloads, monthly governance reviews, quarterly architecture reviews, and annual DR testing.
+
+NEXT STEPS
+Genese requests a 2-week onboarding engagement (USD 12,000 one-time) to document the environment, deploy monitoring agents, and establish runbooks. Service commencement within 30 days of contract signature.
