@@ -68,7 +68,7 @@ const LS_MODEL_KEY = 'genese_preferred_model_id';
 const PIPELINE_STEPS = [
   { key: 'queued',              label: 'Queued',                        pct: 5,   icon: '⏳' },
   { key: 'retrieving_context', label: 'Searching knowledge base...',   pct: 20,  icon: '🔍' },
-  { key: 'validating_sources', label: 'Fetching AWS documentation...',  pct: 35,  icon: '🌐' },
+  { key: 'validating_sources', label: 'Checking AWS docs...',          pct: 35,  icon: '🌐' },
   { key: 'drafting_document',  label: 'Claude is drafting...',        pct: 55,  icon: '✍️' },
   { key: 'generating_diagram', label: 'Designing architecture...',    pct: 70,  icon: '🏗️' },
   { key: 'awaiting_review',    label: 'Review architecture',          pct: 80,  icon: '👁' },
@@ -694,21 +694,44 @@ export function GeneratePage() {
               ) : (
                 <>
                   {/* Step-by-step progress */}
-                  <div className="space-y-3">
+                  <div className="space-y-2">
                     {PIPELINE_STEPS.filter(s => s.key !== 'queued').map((step) => {
                       const stepIdx = PIPELINE_STEPS.findIndex(s => s.key === step.key);
                       const curIdx  = PIPELINE_STEPS.findIndex(s => s.key === activeJob.status);
-                      const done    = stepIdx <= curIdx;
-                      const active  = step.key === activeJob.status;
+                      const isDone   = stepIdx < curIdx;
+                      const isActive = step.key === activeJob.status;
+                      const isFuture = stepIdx > curIdx;
                       return (
-                        <div key={step.key} className="flex items-center space-x-3">
-                          <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs
-                            ${done && !active ? 'bg-green-500 text-white' : active ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
-                            {done && !active ? '\u2713' : active ? <Loader2 className="h-3 w-3 animate-spin" /> : stepIdx}
+                        <div key={step.key} className="flex items-start space-x-3">
+                          {/* Status icon */}
+                          <div className={`flex-shrink-0 w-5 h-5 mt-0.5 rounded-full flex items-center justify-center text-xs font-bold
+                            ${isDone   ? 'bg-green-500 text-white'
+                            : isActive ? 'bg-primary text-primary-foreground'
+                            :            'bg-muted text-muted-foreground/50'}`}>
+                            {isDone
+                              ? <span className="text-[11px]">✓</span>
+                              : isActive
+                                ? <span className="relative flex h-2.5 w-2.5">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary-foreground opacity-75" />
+                                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-primary-foreground" />
+                                  </span>
+                                : null}
                           </div>
-                          <span className={`text-sm ${active ? 'font-medium text-foreground' : done && !active ? 'text-muted-foreground line-through' : 'text-muted-foreground'}`}>
-                            {step.label}
-                          </span>
+                          {/* Label + detail */}
+                          <div className="flex-1 min-w-0">
+                            <span className={`text-sm ${
+                              isDone   ? 'text-green-600 dark:text-green-400'
+                              : isActive ? 'font-semibold text-foreground'
+                              :            'text-muted-foreground/50'
+                            }`}>
+                              {step.label}
+                            </span>
+                            {isActive && activeJob.status_detail && (
+                              <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                                {activeJob.status_detail}
+                              </p>
+                            )}
+                          </div>
                         </div>
                       );
                     })}
