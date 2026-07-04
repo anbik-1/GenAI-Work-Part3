@@ -105,29 +105,38 @@ All of the following must be installed and available in `$PATH` on the deploymen
 | Docker | Any recent | `docker --version` |
 | Docker daemon | Running | `docker info` |
 
-**AWS credentials** must have `AdministratorAccess` (or equivalent) on the target account. The CDK bootstrap and Aurora provisioning require broad permissions.
+**AWS credentials** must have `AdministratorAccess` (or equivalent) on the target account.
 
 ```bash
 # Verify credentials are working
 aws sts get-caller-identity
-
-# Expected output shape:
-# {
-#     "UserId": "...",
-#     "Account": "654654306837",
-#     "Arn": "arn:aws:iam::654654306837:..."
-# }
 ```
 
 **Install CDK globally if not present:**
 ```bash
 npm install -g aws-cdk
+# OR via pip:
+pip install aws-cdk-lib constructs
 ```
 
-**Tavily API key** (optional — enables web search in proposal generation):
+### ⚠️ CRITICAL: Enable Bedrock Model Access (must do BEFORE deploy)
+
+Amazon Bedrock models are **opt-in per account per region**. Without this step, all generation and embedding jobs will fail with `AccessDeniedException`.
+
+1. Go to: **AWS Console → Amazon Bedrock → Model Access** (us-east-1)
+2. Click **"Manage model access"**
+3. Enable these two models:
+   - ✅ **Anthropic Claude Sonnet 4.x** (model ID: `us.anthropic.claude-sonnet-4-6`)
+   - ✅ **Amazon Titan Text Embeddings V2** (model ID: `amazon.titan-embed-text-v2:0`)
+4. Click **"Save changes"** — takes 2–5 minutes to activate
+
+This is free to enable. You only pay per token when models are actually called.
+
+**Tavily API key** (optional — enables live web search in proposals):
 ```bash
 export TAVILY_API_KEY=tvly-your-key-here
-# If not set, deploy.sh skips this step; Tavily features will be disabled
+# Get free key (1000 req/month) at: https://app.tavily.com
+# If not set, deploy.sh skips this step; app still works without it
 ```
 
 ---
@@ -296,6 +305,8 @@ These 8 actions are intentionally NOT in CDK and are executed by `deploy.sh` aft
 
 ## 7. Quick Start — Full Deploy from Scratch
 
+> **Before running:** Enable Bedrock model access in the target account (see Prerequisites → Bedrock section above). This is the only manual step that cannot be automated.
+
 ```bash
 # 1. Clone the repository
 git clone https://github.com/anbik-1/GenAI-Work-Part1.git
@@ -312,9 +323,25 @@ export TAVILY_API_KEY=tvly-your-key-here
 ./deploy.sh
 ```
 
-`deploy.sh` is idempotent. If it fails at any step, fix the issue and re-run — it will skip already-completed steps.
+`deploy.sh` is idempotent — if it fails at any step, fix the issue and re-run. It skips already-completed steps.
+
+**The script works in any AWS account and any region.** All resource identifiers (account ID, URLs, ARNs) are read dynamically — nothing is hardcoded for the current account.
 
 **Total time**: ~25–40 minutes (Aurora provisioning dominates)
+
+### What deploy.sh creates (summary)
+
+| What | How | Why |
+|---|---|---|
+| All infrastructure (VPC, S3, CloudFront, Cognito, Aurora, SQS, ECR, ECS, ALB, IAM, Secrets) | CDK | Permanent, stateful, rarely changes |
+| ECR repositories | CLI (before CDK) | CDK references them by name — must exist first |
+| Docker images | CLI | CDK is not a build system |
+| Database schema | CLI (one-off Fargate task) | Aurora is in private subnet — no direct access |
+| ECS services | CLI (NEVER CDK) | CFN ECS stabilization causes 3-hour timeout + full stack rollback |
+| CloudFront /api/* proxy | CLI | ALB DNS only known after CDK outputs |
+| Frontend (React build) | CLI | App code, not infrastructure |
+| Cognito admin user | CLI | User data, not infrastructure |
+| Seed documents | CLI (API calls) | Application data |
 
 ---
 
@@ -913,6 +940,97 @@ Aurora PostgreSQL is in private subnets. **There is no way to connect to it from
 | v2 | `db_migration_v2.py` | ALTER TABLE `generation_jobs` ADD COLUMN `outcome`, `proposal_score`, `pdf_s3_key`, `sme_report`; ALTER TABLE `users` ADD COLUMN `role` |
 | v3 | `db_migration_v3.py` | ALTER TABLE `generation_jobs` ADD COLUMN `template_name` |
 | v4 | `db_migration_v4.py` | ALTER TABLE `generation_jobs` ADD COLUMN `plain_text_instructions` |
+
+> **Note:** `deploy.sh` runs a single consolidated migration script that creates ALL tables and ALL columns in one pass. The v2/v3/v4 files are kept for reference and for existing installs that need to apply incremental changes only.
+
+### Schema — All Tables and Columns (current complete state)
+
+```sql
+-- pgvector extension (required)
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- users (role-based access control)
+CREATE TABLE users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    cognito_sub VARCHAR(255) UNIQUE NOT NULL,
+    email VARCHAR(255) NOT NULL,
+    name VARCHAR(255),
+    role VARCHAR(20) DEFAULT 'member',   -- 'admin' or 'member'
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- documents (knowledge base)
+CREATE TABLE documents (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    filename VARCHAR(500) NOT NULL,
+    document_type VARCHAR(50) NOT NULL,
+    engagement_type VARCHAR(100),
+    client_name VARCHAR(255),
+    s3_key VARCHAR(1000) NOT NULL,
+    chunk_count INTEGER DEFAULT 0,
+    uploaded_by UUID,
+    ingestion_status VARCHAR(50) DEFAULT 'pending',
+    embedding_model VARCHAR(255),
+    embedding_tokens INTEGER DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- document_chunks (pgvector embeddings)
+CREATE TABLE document_chunks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    document_id UUID REFERENCES documents(id) ON DELETE CASCADE,
+    chunk_index INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    embedding vector(1024),   -- Titan Text v2 — 1024 dims, NOT 1536
+    metadata JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX idx_chunks_embedding ON document_chunks
+    USING ivfflat (embedding vector_cosine_ops) WITH (lists=10);
+
+-- generation_jobs (full job lifecycle)
+CREATE TABLE generation_jobs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID,
+    document_type VARCHAR(50) NOT NULL,
+    client_name VARCHAR(255) NOT NULL,
+    engagement_type VARCHAR(100) NOT NULL,
+    key_requirements TEXT NOT NULL,
+    context_notes TEXT,
+    status VARCHAR(50) DEFAULT 'queued',
+    status_detail VARCHAR(255),
+    rag_context JSONB,
+    tavily_sources JSONB,
+    output_s3_key VARCHAR(1000),
+    error_message TEXT,
+    llm_model VARCHAR(255),
+    input_tokens INTEGER DEFAULT 0,
+    output_tokens INTEGER DEFAULT 0,
+    arch_json JSONB,
+    arch_s3_key VARCHAR(1000),
+    arch_iteration INTEGER DEFAULT 0,
+    sections_content JSONB,        -- stored draft sections (no re-draft on approval)
+    drawio_s3_key VARCHAR(1000),   -- draw.io XML export
+    pdf_s3_key VARCHAR(1000),      -- PDF version
+    proposal_score JSONB,          -- Claude quality scores (5 dimensions)
+    sme_report JSONB,              -- SME review report (findings, recommendations)
+    outcome VARCHAR(20) DEFAULT 'pending',  -- 'won', 'lost', 'pending'
+    template_name VARCHAR(100),    -- 'default', 'plain_text', or uploaded type
+    plain_text_instructions TEXT,  -- custom instructions for plain text format
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    completed_at TIMESTAMPTZ
+);
+
+-- arch_references (style reference images for architecture generation)
+CREATE TABLE arch_references (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    engagement_type VARCHAR(100) DEFAULT 'general',
+    s3_key VARCHAR(1000) NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
 
 ### Running a Migration Manually
 
