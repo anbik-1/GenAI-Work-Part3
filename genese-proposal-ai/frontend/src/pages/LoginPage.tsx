@@ -8,9 +8,9 @@ import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/misc';
 import { useAuth } from '@/contexts/AuthContext';
 
-const COGNITO_DOMAIN = 'https://genese-proposal.auth.us-east-1.amazoncognito.com';
-const CLIENT_ID = '19ufsosadrbr5fqlhleargbrbi';
-const REDIRECT_URI = 'https://d3gmhvny3loneb.cloudfront.net/auth/callback';
+const COGNITO_DOMAIN = import.meta.env.VITE_COGNITO_DOMAIN || 'https://genese-proposal.auth.us-east-1.amazoncognito.com';
+const CLIENT_ID = import.meta.env.VITE_COGNITO_CLIENT_ID || '19ufsosadrbr5fqlhleargbrbi';
+const REDIRECT_URI = `${window.location.origin}/auth/callback`;
 
 function handleGoogleLogin() {
   const url =

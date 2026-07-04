@@ -407,11 +407,21 @@ conn = psycopg2.connect(host=s["host"], port=int(s.get("port", 5432)),
     dbname=s.get("dbname", "genese"), user=s["username"], password=s["password"])
 conn.set_isolation_level(0)
 cur = conn.cursor()
+
+# Extensions
 cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+
+# users table (includes role for RBAC)
 cur.execute("""CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    cognito_sub VARCHAR(255) UNIQUE NOT NULL, email VARCHAR(255) NOT NULL,
-    name VARCHAR(255), created_at TIMESTAMPTZ DEFAULT NOW());""")
+    cognito_sub VARCHAR(255) UNIQUE NOT NULL,
+    email VARCHAR(255) NOT NULL,
+    name VARCHAR(255),
+    role VARCHAR(20) DEFAULT 'member',
+    created_at TIMESTAMPTZ DEFAULT NOW());""")
+cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'member';")
+
+# documents table
 cur.execute("""CREATE TABLE IF NOT EXISTS documents (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     filename VARCHAR(500) NOT NULL, document_type VARCHAR(50) NOT NULL,
@@ -420,6 +430,8 @@ cur.execute("""CREATE TABLE IF NOT EXISTS documents (
     ingestion_status VARCHAR(50) DEFAULT 'pending',
     embedding_model VARCHAR(255), embedding_tokens INTEGER DEFAULT 0,
     created_at TIMESTAMPTZ DEFAULT NOW());""")
+
+# document_chunks table with pgvector
 cur.execute("""CREATE TABLE IF NOT EXISTS document_chunks (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     document_id UUID REFERENCES documents(id) ON DELETE CASCADE,
@@ -428,18 +440,62 @@ cur.execute("""CREATE TABLE IF NOT EXISTS document_chunks (
     created_at TIMESTAMPTZ DEFAULT NOW());""")
 cur.execute("""CREATE INDEX IF NOT EXISTS idx_chunks_embedding
     ON document_chunks USING ivfflat (embedding vector_cosine_ops) WITH (lists=10);""")
+
+# generation_jobs table — all columns including v2/v3/v4 additions
 cur.execute("""CREATE TABLE IF NOT EXISTS generation_jobs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID, document_type VARCHAR(50) NOT NULL,
-    client_name VARCHAR(255) NOT NULL, engagement_type VARCHAR(100) NOT NULL,
-    key_requirements TEXT NOT NULL, context_notes TEXT,
-    status VARCHAR(50) DEFAULT 'queued', status_detail VARCHAR(255),
-    rag_context JSONB, tavily_sources JSONB, output_s3_key VARCHAR(1000),
-    error_message TEXT, llm_model VARCHAR(255),
-    input_tokens INTEGER DEFAULT 0, output_tokens INTEGER DEFAULT 0,
-    arch_json JSONB, arch_s3_key VARCHAR(1000), arch_iteration INTEGER DEFAULT 0,
-    created_at TIMESTAMPTZ DEFAULT NOW(), completed_at TIMESTAMPTZ);""")
-print("Migration complete — all tables and indexes created")
+    user_id UUID,
+    document_type VARCHAR(50) NOT NULL,
+    client_name VARCHAR(255) NOT NULL,
+    engagement_type VARCHAR(100) NOT NULL,
+    key_requirements TEXT NOT NULL,
+    context_notes TEXT,
+    status VARCHAR(50) DEFAULT 'queued',
+    status_detail VARCHAR(255),
+    rag_context JSONB,
+    tavily_sources JSONB,
+    output_s3_key VARCHAR(1000),
+    error_message TEXT,
+    llm_model VARCHAR(255),
+    input_tokens INTEGER DEFAULT 0,
+    output_tokens INTEGER DEFAULT 0,
+    arch_json JSONB,
+    arch_s3_key VARCHAR(1000),
+    arch_iteration INTEGER DEFAULT 0,
+    sections_content JSONB,
+    drawio_s3_key VARCHAR(1000),
+    pdf_s3_key VARCHAR(1000),
+    proposal_score JSONB,
+    sme_report JSONB,
+    outcome VARCHAR(20) DEFAULT 'pending',
+    template_name VARCHAR(100),
+    plain_text_instructions TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    completed_at TIMESTAMPTZ);""")
+
+# Ensure all columns exist (idempotent for existing installs)
+for col_sql in [
+    "ALTER TABLE generation_jobs ADD COLUMN IF NOT EXISTS sections_content JSONB;",
+    "ALTER TABLE generation_jobs ADD COLUMN IF NOT EXISTS drawio_s3_key VARCHAR(1000);",
+    "ALTER TABLE generation_jobs ADD COLUMN IF NOT EXISTS pdf_s3_key VARCHAR(1000);",
+    "ALTER TABLE generation_jobs ADD COLUMN IF NOT EXISTS proposal_score JSONB;",
+    "ALTER TABLE generation_jobs ADD COLUMN IF NOT EXISTS sme_report JSONB;",
+    "ALTER TABLE generation_jobs ADD COLUMN IF NOT EXISTS outcome VARCHAR(20) DEFAULT 'pending';",
+    "ALTER TABLE generation_jobs ADD COLUMN IF NOT EXISTS template_name VARCHAR(100);",
+    "ALTER TABLE generation_jobs ADD COLUMN IF NOT EXISTS plain_text_instructions TEXT;",
+]:
+    cur.execute(col_sql)
+
+# arch_references table for style reference images
+cur.execute("""CREATE TABLE IF NOT EXISTS arch_references (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    engagement_type VARCHAR(100) DEFAULT 'general',
+    s3_key VARCHAR(1000) NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW());""")
+
+print("Migration complete — all tables, indexes, and columns created")
 cur.close(); conn.close()
 PYEOF
 
