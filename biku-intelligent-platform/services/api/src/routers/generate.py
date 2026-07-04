@@ -500,22 +500,42 @@ async def get_job_status(
     db: AsyncSession = Depends(get_db),
     user_sub: str = Depends(get_current_user_sub),
 ):
-    """Poll generation job status. Returns download_url when complete."""
+    """Poll generation job status. Returns download_url when complete.
+
+    Members may only fetch their own jobs (403 if they request another user's job).
+    Admins can fetch any job and additionally receive owner_email / owner_name.
+    """
     from sqlalchemy import text
 
     # Use raw SQL to avoid async ORM stale column metadata issues with ALTER TABLE columns
     row = (await db.execute(
-        text("""SELECT id, status, status_detail, rag_context, tavily_sources,
-                       output_s3_key, pdf_s3_key, error_message, llm_model,
-                       input_tokens, output_tokens, created_at, completed_at,
-                       proposal_score, outcome, sections_content, drawio_s3_key,
-                       sme_report
-                FROM generation_jobs WHERE id = :job_id"""),
+        text("""SELECT gj.id, gj.status, gj.status_detail, gj.rag_context, gj.tavily_sources,
+                       gj.output_s3_key, gj.pdf_s3_key, gj.error_message, gj.llm_model,
+                       gj.input_tokens, gj.output_tokens, gj.created_at, gj.completed_at,
+                       gj.proposal_score, gj.outcome, gj.sections_content, gj.drawio_s3_key,
+                       gj.sme_report, gj.user_id,
+                       u.email AS owner_email, u.name AS owner_name
+                FROM generation_jobs gj
+                LEFT JOIN users u ON u.id = gj.user_id
+                WHERE gj.id = :job_id"""),
         {"job_id": str(job_id)}
     )).mappings().one_or_none()
 
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+
+    # Ownership / role check — resolve the requesting user's id and role
+    user_row = (await db.execute(
+        text("SELECT id, role FROM users WHERE cognito_sub = :sub"),
+        {"sub": user_sub}
+    )).mappings().one_or_none()
+
+    is_admin = user_row is not None and user_row["role"] == "admin"
+
+    # Non-admins can only access their own jobs
+    if row["user_id"] is not None and not is_admin:
+        if user_row is None or str(row["user_id"]) != str(user_row["id"]):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
     # Build download URLs if complete
     download_url = None
@@ -557,4 +577,7 @@ async def get_job_status(
         "sections_content": row["sections_content"] if "sections_content" in row.keys() else None,
         "drawio_download_url": get_presigned_url(row["drawio_s3_key"], expiry_seconds=3600) if row.get("drawio_s3_key") else None,
         "sme_report": row["sme_report"] if "sme_report" in row.keys() else None,
+        # Owner info visible to admins only
+        "owner_email": row["owner_email"] if is_admin else None,
+        "owner_name": row["owner_name"] if is_admin else None,
     }

@@ -72,12 +72,89 @@ Rules:
 - proposed_improvements: ONLY include sections where you can make a meaningful improvement
 - Return ONLY the JSON object — absolutely no text before or after"""
 
+SME_TECHNICAL_CONTEXT = {
+    "aws_migration": """Current AWS migration best practices (2025):
+- AWS Application Migration Service (MGN) replaced SMS for lift-and-shift
+- AWS Migration Hub for tracking migrations
+- Well-Architected Migration lens
+- 7Rs framework: Retire, Retain, Rehost, Relocate, Repurchase, Replatform, Refactor
+- CloudEndure is deprecated — use MGN instead
+- AWS DataSync for data transfer, not manual rsync""",
+    "data_platform": """Current AWS data platform best practices (2025):
+- AWS Lake Formation for data lake governance
+- Amazon DataZone for data catalog and governance
+- Apache Iceberg table format for S3 data lakes (supported by Glue, Athena)
+- Amazon Redshift Serverless for ad-hoc analytics
+- AWS Glue 4.0+ with improved performance
+- Kinesis Data Firehose renamed to Amazon Data Firehose""",
+    "security_audit": """Current AWS security best practices (2025):
+- AWS Security Hub with consolidated findings
+- Amazon GuardDuty with EKS, Lambda, RDS protection
+- AWS IAM Identity Center (replaces SSO)
+- AWS Verified Access for zero-trust application access
+- Amazon Inspector v2 for vulnerability management
+- AWS Config with managed rules and conformance packs""",
+    "devops_transformation": """Current AWS DevOps best practices (2025):
+- AWS CodeCatalyst as unified DevOps platform
+- Amazon CodeWhisperer (now Amazon Q Developer) for AI coding
+- Amazon ECS Anywhere and EKS Anywhere for hybrid
+- AWS Proton for infrastructure templates
+- CodePipeline V2 with improved trigger support""",
+    "cloud_native_development": """Current AWS cloud-native best practices (2025):
+- AWS Lambda SnapStart for Java cold start reduction
+- Amazon EventBridge Pipes for event-driven architectures
+- AWS Step Functions for orchestration (not Lambda chaining)
+- Amazon API Gateway v2 (HTTP API) preferred over REST API for new projects
+- AWS App Runner for containerized web apps without ECS complexity""",
+    "finops_optimization": """Current AWS FinOps best practices (2025):
+- AWS Cost Optimization Hub (new service, 2024)
+- Savings Plans preferred over Reserved Instances for flexibility
+- AWS Graviton3 processors for 40% better price/performance
+- Amazon EC2 Spot Instances with Spot Fleet for fault-tolerant workloads
+- AWS Compute Optimizer with enhanced ML recommendations""",
+    "disaster_recovery": """Current AWS disaster recovery best practices (2025):
+- AWS Elastic Disaster Recovery (DRS) replaces CloudEndure Disaster Recovery
+- AWS Backup with cross-region and cross-account support
+- Route 53 Application Recovery Controller for zone shifts
+- AWS Resilience Hub for automated RTO/RPO assessment""",
+    "managed_services": """Current AWS managed services best practices (2025):
+- AWS Systems Manager for unified operations management
+- AWS Config conformance packs for compliance automation
+- Amazon CloudWatch unified observability with anomaly detection
+- AWS Health Dashboard for service health and event notifications
+- AWS Trusted Advisor with enhanced checks and recommendations""",
+    "ai_ml_platform": """Current AWS AI/ML best practices (2025):
+- Amazon Bedrock for foundation model access and fine-tuning
+- Amazon SageMaker Canvas for no-code ML
+- Amazon Q for generative AI applications
+- SageMaker Pipelines for MLOps workflows
+- Amazon Bedrock Knowledge Bases for RAG implementations""",
+    "cloud_adoption": """Current AWS Cloud Adoption Framework (2025):
+- AWS CAF 3.0 with 6 perspectives: Business, People, Governance, Platform, Security, Operations
+- AWS Migration Evaluator for business case development
+- AWS Landing Zone Accelerator for multi-account governance
+- AWS Control Tower for enterprise guardrails
+- AWS Organizations with Service Control Policies""",
+    "cloud_optimization": """Current AWS Well-Architected optimization best practices (2025):
+- AWS Well-Architected Tool with lens reviews
+- AWS Compute Optimizer for right-sizing with ML
+- AWS Cost Optimization Hub for centralized recommendations
+- Amazon CodeGuru Profiler for application performance
+- AWS Graviton4 for latest price/performance improvements""",
+}
+
 SME_HUMAN = """Client: {client_name}
 Engagement Type: {engagement_type}
 Key Requirements: {requirements}
 
+CURRENT AWS TECHNICAL CONTEXT (2025 best practices for this engagement type):
+{technical_context}
+
 Current Draft Sections:
 {sections_text}
+
+Important: Flag any outdated service names, deprecated services, or recommendations
+that conflict with the current AWS best practices listed above.
 
 Perform your expert review and return the structured JSON report."""
 
@@ -105,6 +182,10 @@ def run_sme_review_chain(
     Raises on unrecoverable errors so orchestrator can handle gracefully.
     """
     persona = SME_PERSONAS.get(engagement_type, SME_PERSONAS["general"])
+    technical_context = SME_TECHNICAL_CONTEXT.get(
+        engagement_type,
+        "Follow current AWS Well-Architected Framework best practices and use up-to-date AWS service names."
+    )
 
     # Serialize sections for the prompt — include all string sections
     sections_text = "\n\n".join(
@@ -124,6 +205,7 @@ def run_sme_review_chain(
         client_name=client_name,
         engagement_type=engagement_type.replace("_", " ").title(),
         requirements=key_requirements[:500],
+        technical_context=technical_context,
         sections_text=sections_text,
     ))
 
